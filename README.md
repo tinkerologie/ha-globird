@@ -1,7 +1,12 @@
 # GloBird Integration for Home Assistant
 
-[![HACS Custom](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://hacs.xyz)
-[![Quality Scale: Platinum](https://img.shields.io/badge/Home%20Assistant%20Quality%20Scale-Platinum-blue.svg)](https://developers.home-assistant.io/docs/core/integration-quality-scale/)
+<!-- BADGES:START -->
+[![Marketplace and HACS](https://img.shields.io/badge/Marketplace%20%7C%20HACS-Default-orange.svg)](https://www.hacs.xyz/docs/marketplace/)
+[![GitHub Last Commit](https://img.shields.io/github/last-commit/tinkerologie/ha-globird)](https://github.com/tinkerologie/ha-globird/commits/main)
+[![GitHub Release](https://img.shields.io/github/v/release/tinkerologie/ha-globird)](https://github.com/tinkerologie/ha-globird/releases)
+[![codecov](https://codecov.io/gh/tinkerologie/ha-globird/graph/badge.svg)](https://codecov.io/gh/tinkerologie/ha-globird)
+[![License](https://img.shields.io/github/license/tinkerologie/ha-globird)](./LICENSE)
+<!-- BADGES:END -->
 
 The **GloBird** custom integration connects your [GloBird Energy](https://www.globirdenergy.com.au/) Australian electricity and gas customer portal account to Home Assistant. It retrieves account balances, invoices, smart/basic meter electricity usage (`E1` grid import and `B1` solar feed-in export), gas meter readings, daily costs, solar export credits, ZeroHero status, and local weather observations, and integrates directly with the **Home Assistant Energy Dashboard**.
 
