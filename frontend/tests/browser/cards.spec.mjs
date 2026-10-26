@@ -75,3 +75,29 @@ test("dark theme, loading, stale and unavailable states", async ({ page }) => {
   await page.goto("/?mode=unavailable");
   await expect(page.locator(tags[2])).toContainText("Unavailable");
 });
+
+for (const dark of [false, true])
+  test(`WCAG accessibility in ${dark ? "dark" : "light"} theme`, async ({
+    page,
+  }) => {
+    await page.goto(`/?dark=${dark}&editor=globird-electricity-usage-card`);
+    await expect(page.locator("html")).toHaveAttribute(
+      "data-duplicate-module",
+      "loaded",
+    );
+    await page.addScriptTag({ path: "node_modules/axe-core/axe.min.js" });
+    const violations = await page.evaluate(async () => {
+      const results = await window.axe.run(document, {
+        runOnly: {
+          type: "tag",
+          values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"],
+        },
+      });
+      return results.violations.map((v) => ({
+        id: v.id,
+        description: v.description,
+        nodes: v.nodes.map((n) => n.target),
+      }));
+    });
+    expect(violations).toEqual([]);
+  });
