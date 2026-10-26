@@ -114,7 +114,7 @@ async def async_register_frontend(hass: HomeAssistant, *, _force: bool = False) 
     async with lock:
         resources, storage_mode = _resource_collection(hass)
         key = (storage_mode, id(resources))
-        if not _force and data.get("frontend_registration_key") == key:
+        if storage_mode and not _force and data.get("frontend_registration_key") == key:
             return
         try:
             from homeassistant.components.http import (

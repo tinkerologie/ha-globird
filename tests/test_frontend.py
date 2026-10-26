@@ -393,3 +393,16 @@ def test_explicit_yaml_resource_removes_previous_extra_fallback(
     )
     asyncio.run(frontend.async_register_frontend(frontend_hass))
     assert not frontend_hass.active_extra_urls
+
+
+def test_yaml_in_place_resource_addition_removes_fallback(frontend_hass: Any) -> None:
+    items: list[dict[str, str]] = []
+    frontend_hass.data["lovelace"].resources = types.SimpleNamespace(
+        async_items=lambda: items
+    )
+    asyncio.run(frontend.async_register_frontend(frontend_hass))
+    assert len(frontend_hass.active_extra_urls) == 1
+    items.append({"url": frontend.BUNDLE_URL, "type": "module"})
+    asyncio.run(frontend.async_register_frontend(frontend_hass))
+    assert not frontend_hass.active_extra_urls
+    assert len(frontend_hass.paths) == 1
