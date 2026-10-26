@@ -7,15 +7,26 @@ import logging
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.typing import ConfigType
 
 from .const import DOMAIN
 from .coordinator import GloBirdCoordinator
+from .frontend import async_register_frontend
 
 _LOGGER = logging.getLogger(__name__)
 
 type GloBirdConfigEntry = ConfigEntry[GloBirdCoordinator]
 
 PLATFORMS: list[Platform] = [Platform.SENSOR]
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
+
+
+async def async_setup(hass: HomeAssistant, _config: ConfigType) -> bool:
+    """Load the shared frontend independently of config entries."""
+    hass.data.setdefault(DOMAIN, {})
+    await async_register_frontend(hass)
+    return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: GloBirdConfigEntry) -> bool:

@@ -40,3 +40,6 @@ ignore = ["E501", "S101", "TRY003", "TRY300"]
 exclude_dirs = ["tests", ".venv", ".local", "build"]
 skips = ["B101"]
 
+
+[tool.setuptools.package-data]
+"custom_components.globird" = ["www/*.js"]

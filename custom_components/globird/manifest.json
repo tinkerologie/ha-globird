@@ -1,6 +1,10 @@
 {
   "domain": "globird",
   "name": "GloBird",
+  "after_dependencies": [
+    "frontend",
+    "http"
+  ],
   "codeowners": [
     "@ruaan-deysel"
   ],
