@@ -22,3 +22,13 @@ config/
 .idea/
 .vscode/
 
+
+# Dashboard frontend development artifacts
+node_modules/
+frontend/test-results/
+frontend/playwright-report/
+frontend/coverage/
+*.trace.zip
+
+# Generated Python coverage upload
+coverage.xml

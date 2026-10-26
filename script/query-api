@@ -55,7 +55,7 @@ async def run_query(email: str, password: str) -> int:
         print(_compact(signup_info))
 
         return 0
-    except Exception as err:  # noqa: BLE001 - CLI should print actionable error.
+    except Exception as err:  # CLI should print actionable error.
         print(f"query-api failed: {err}")
         return 1
     finally:

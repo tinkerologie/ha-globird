@@ -1,0 +1,22 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.17.0
+    hooks:
+      - id: ruff-check
+        exclude: ^custom_components/globird/api/
+      - id: ruff-format
+        exclude: ^custom_components/globird/api/
+  - repo: local
+    hooks:
+      - id: frontend-lint
+        name: Frontend lint and format
+        entry: npm --prefix frontend run lint
+        language: system
+        pass_filenames: false
+        files: ^frontend/
+      - id: frontend-typecheck
+        name: Frontend TypeScript 7
+        entry: npm --prefix frontend run typecheck
+        language: system
+        pass_filenames: false
+        files: ^frontend/

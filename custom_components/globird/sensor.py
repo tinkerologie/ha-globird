@@ -749,6 +749,7 @@ class GloBirdBaseSensor(CoordinatorEntity[GloBirdCoordinator], SensorEntity):
     """Base class for GloBird sensors."""
 
     _attr_has_entity_name = True
+    _unrecorded_attributes = frozenset({"globird_sensor_key", "statistic_id"})
 
     def __init__(
         self, coordinator: GloBirdCoordinator, config_entry: ConfigEntry
@@ -794,7 +795,8 @@ class GloBirdGlobalSensor(GloBirdBaseSensor):
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return sensor attributes."""
         attrs_fn = self._description.attrs_fn
-        return attrs_fn(self.coordinator.data or {}) if attrs_fn else {}
+        attrs = attrs_fn(self.coordinator.data or {}) if attrs_fn else {}
+        return {**attrs, "globird_sensor_key": self._description.key}
 
 
 class GloBirdAccountSummarySensor(GloBirdBaseSensor):
@@ -839,7 +841,7 @@ class GloBirdAccountSummarySensor(GloBirdBaseSensor):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return account attributes."""
-        return dict(self._account())
+        return {**self._account(), "globird_sensor_key": "account_summary"}
 
 
 class GloBirdServiceBaseSensor(GloBirdBaseSensor):
@@ -892,7 +894,10 @@ class GloBirdServiceBaseSensor(GloBirdBaseSensor):
         """Return service metadata attributes."""
         detail = self._service_detail()
         service = detail.get("service") or {}
-        return {
+        attrs = {
+            "globird_sensor_key": (
+                "register" if self.sensor_key == "usage_register" else self.sensor_key
+            ),
             "account_service_id": service.get("accountServiceId"),
             "site_identifier": service.get("siteIdentifier"),
             "site_address": service.get("siteAddress"),
@@ -901,6 +906,18 @@ class GloBirdServiceBaseSensor(GloBirdBaseSensor):
             "account_id": service.get("accountId"),
             "account_number": service.get("accountNumber"),
         }
+        if isinstance(
+            self, (GloBirdDailyStatisticsSensor, GloBirdLatestGasReadingSensor)
+        ):
+            attrs["statistic_id"] = self._external_statistic_id()
+        return attrs
+
+    def _external_statistic_id(self) -> str:
+        """Return the exact identifier used by the existing statistics importer."""
+        suffix = _safe_statistic_id(
+            getattr(self, "_attr_unique_id", self._service_id), self._service_id
+        )
+        return f"{DOMAIN}:{suffix}"
 
     async def _async_stored_rows_before(
         self, statistic_id: str, before: datetime, types: set[str]
@@ -963,11 +980,7 @@ class GloBirdServiceBaseSensor(GloBirdBaseSensor):
         except ImportError:
             return
 
-        statistic_suffix = _safe_statistic_id(
-            getattr(self, "_attr_unique_id", self._service_id),
-            self._service_id,
-        )
-        statistic_id = f"{DOMAIN}:{statistic_suffix}"
+        statistic_id = self._external_statistic_id()
         tzinfo = dt_util.now().tzinfo or UTC
         statistics = _build_daily_cumulative_statistics(
             daily_rows,
@@ -1307,11 +1320,7 @@ class GloBirdLatestGasReadingSensor(GloBirdServiceBaseSensor):
             )
             return
 
-        statistic_suffix = _safe_statistic_id(
-            getattr(self, "_attr_unique_id", self._service_id),
-            self._service_id,
-        )
-        statistic_id = f"{DOMAIN}:{statistic_suffix}"
+        statistic_id = self._external_statistic_id()
         try:
             stored_rows = await self._async_stored_rows_before(
                 statistic_id, statistics[0]["start"], {"state", "sum"}

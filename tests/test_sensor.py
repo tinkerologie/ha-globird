@@ -1110,7 +1110,7 @@ def test_account_summary_returns_empty_when_account_missing() -> None:
         {"accountId": 123, "accountNumber": "A123"},
     )
     assert entity.native_value is None
-    assert entity.extra_state_attributes == {}
+    assert entity.extra_state_attributes == {"globird_sensor_key": "account_summary"}
 
 
 def test_zerohero_boundary_scheduling_and_callbacks(monkeypatch: Any) -> None:
@@ -2102,3 +2102,49 @@ def test_gas_upload_waits_for_recorder_commit(monkeypatch: Any) -> None:
 
     assert len(uploaded) == 1
     assert waited == [uploaded[0][0]["statistic_id"]]
+
+
+def test_card_discovery_metadata_is_additive_and_unrecorded() -> None:
+    """Stable discovery roles and external IDs survive entity renaming."""
+    coordinator = types.SimpleNamespace(
+        data={"service_data": {}}, last_update_success=True
+    )
+    entry = types.SimpleNamespace(entry_id="synthetic-entry")
+    service = {
+        "accountId": "demo",
+        "accountServiceId": "electric",
+        "serviceType": "Electricity",
+    }
+    for cls in (
+        sensor.GloBirdUsageTotalSensor,
+        sensor.GloBirdSolarExportTotalSensor,
+        sensor.GloBirdControlledLoadTotalSensor,
+        sensor.GloBirdCostTotalSensor,
+        sensor.GloBirdSolarExportCreditTotalSensor,
+        sensor.GloBirdLatestGasReadingSensor,
+    ):
+        entity = cls(coordinator, entry, service)
+        entity.entity_id = "sensor.renamed_by_user"
+        attrs = entity.extra_state_attributes
+        assert attrs["globird_sensor_key"] == entity.sensor_key
+        assert attrs["statistic_id"] == entity._external_statistic_id()
+        assert attrs["statistic_id"].startswith("globird:")
+        assert {"globird_sensor_key", "statistic_id"} <= entity._unrecorded_attributes
+    daily = sensor.GloBirdLatestDayUsageSensor(coordinator, entry, service)
+    assert "statistic_id" not in daily.extra_state_attributes
+    global_entity = sensor.GloBirdGlobalSensor(
+        coordinator, entry, sensor.GLOBAL_SENSORS[0]
+    )
+    assert global_entity.extra_state_attributes["globird_sensor_key"] == "balance"
+    account = sensor.GloBirdAccountSummarySensor(
+        coordinator, entry, {"accountId": "demo"}
+    )
+    assert account.extra_state_attributes["globird_sensor_key"] == "account_summary"
+    register = sensor.GloBirdUsageRegisterSensor(
+        coordinator, entry, service, {"slug": "peak"}
+    )
+    assert register.extra_state_attributes["globird_sensor_key"] == "register"
+    assert (
+        register.extra_state_attributes["statistic_id"]
+        == register._external_statistic_id()
+    )

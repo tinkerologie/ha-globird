@@ -171,3 +171,62 @@ automation:
 1. Go to **Settings > Devices & Services** and select **GloBird**.
 2. Click the three-dot menu next to your GloBird config entry and choose **Delete**.
 3. If installed via HACS, open **HACS > GloBird > Remove** and restart Home Assistant.
+
+
+## Dashboard cards
+
+Four cards ship with the integration. Restart Home Assistant after updating, then refresh the browser. In storage mode, the integration manages one versioned Lovelace module resource automatically; no HACS frontend download or manual resource is needed. Loading through Lovelace ensures Home Assistant has installed its custom-element registry before the cards register. Open **Edit dashboard → Add card** and search for **GloBird**. Each card has a visual editor with a service/entity selector, optional title, default service type, history source and history length.
+
+| Type | Contents |
+| --- | --- |
+| `custom:globird-usage-cost-card` | Billing-period cost and days, estimated bill, latest complete cost day |
+| `custom:globird-electricity-usage-card` | Separate general import, solar export and controlled load, daily averages and chart |
+| `custom:globird-latest-day-card` | Latest available usage and matching cost, or an actual gas meter reading |
+| `custom:globird-account-card` | Account balance, invoice and refresh status |
+
+Choose an existing GloBird service sensor in the editor. The companion sensors are discovered through `globird_sensor_key`, so their names can be customised. Select an account explicitly when more than one is present. Electricity/gas selection appears only when that account has both services. Account cards use the **Dashboard Balance** entity; they do not show account numbers or addresses.
+
+```yaml
+type: custom:globird-electricity-usage-card
+entity: sensor.globird_energy_latest_data_status
+history_source: attributes
+history_days: 7
+```
+
+```yaml
+type: custom:globird-usage-cost-card
+entity: sensor.globird_energy_latest_data_status
+title: Energy costs
+```
+
+```yaml
+type: custom:globird-latest-day-card
+entity: sensor.globird_energy_latest_data_status
+```
+
+```yaml
+type: custom:globird-account-card
+entity: sensor.globird_energy_dashboard_balance
+```
+
+Use your actual entity IDs. For longer electricity history, choose `history_source: statistics` and `history_days: 31` (1–31 is supported). This reads `recorder/statistics_during_period` daily **change** values using the existing `statistic_id`, not cumulative sums. Attribute history is limited to the latest seven rows. The chart and its accessible readings table show dates and missing values explicitly. Per-day averages use only days with readings; cost comparisons use matching complete usage/cost days. Controlled load is never added into general import by the cards.
+
+GloBird readings and costs may lag by 24–48 hours. **Yesterday** appears only when the reading date matches yesterday in Home Assistant's configured time zone. Gas values are meter indexes in m³, not daily consumption; missing readings remain **No data**. Zero is retained as a real value. Account balances retain the existing convention: negative means credit, positive means money owing.
+
+The estimated bill is the integration's existing **30-day projection**, calculated as billing-period cost to date ÷ completed days with cost data × 30. The start is inferred from the latest invoice issue date and is labelled accordingly. It is not the retailer's final bill. The cards preserve portal costs and credits; they do not calculate tariff prices, budgets or battery forecasts. Failed refreshes show stale-data notices and the last successful refresh date.
+
+Both discovery attributes are excluded from recorder attributes. No credentials or portal API calls are included in the frontend bundle. The module remains registered when a config entry reloads or unloads. If HTTP/frontend is absent, sensors continue working without the cards.
+
+For development, use Node 24 (`frontend/.nvmrc`), run `npm ci` in `frontend`, and run `script/frontend`. TypeScript is pinned to stable **7.0.2** with `tsc --noEmit`; Lit is bundled locally. `npm run verify-bundle` rebuilds and rejects a bundle that differs from the committed asset. Research and compatibility evidence are in [dashboard-cards-research.md](docs/dashboard-cards-research.md).
+
+### YAML-mode dashboard resources
+
+For YAML-mode Lovelace, declare the module in your existing resources configuration so it loads after the Home Assistant frontend starts. The optional extra-module fallback is retained, but an explicit YAML resource avoids early registration before Home Assistant installs its scoped registry. Keep the query version aligned with your installed integration version and change it when updating.
+
+```yaml
+resources:
+  - url: /globird_frontend/globird-cards.js?v=2026.10.4
+    type: module
+```
+
+The CI coverage report compares Python coverage with the actual PR base and requires no regression; browser tests separately verify card behavior and accessibility.

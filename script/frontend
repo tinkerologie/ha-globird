@@ -1,0 +1,12 @@
+#!/bin/bash
+# Run the dashboard card checks, build and real-browser tests.
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$SCRIPT_DIR/../frontend"
+npm ci
+npm run lint
+npm run typecheck
+npm test
+npm run build
+npx playwright install chromium
+npm run test:browser

@@ -1,0 +1,16 @@
+coverage:
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 0%
+    patch:
+      default:
+        target: 95%
+        threshold: 0%
+comment:
+  require_base: true
+  require_head: true
+ignore:
+  - tests/**
+  - script/**
