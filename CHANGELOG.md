@@ -6,6 +6,10 @@ This project uses Home Assistant's calendar versioning scheme (`YYYY.M.P`, for e
 
 ## [Unreleased]
 
+### Fixed
+
+- Align the Python package version with the `2026.10.5` integration manifest, restoring CI version validation and the frontend resource registration test after the release bump.
+
 ## [2026.10.5] - 2026-10-26
 
 ### Added
