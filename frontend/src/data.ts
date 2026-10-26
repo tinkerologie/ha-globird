@@ -255,10 +255,9 @@ export function statisticsRows(
       map.set(d, item);
     }
   }
+  const incompleteRaw = service.entities.cost_total?.attributes.incomplete_days;
   const incomplete = new Set(
-    history(service, 31)
-      .filter((r) => r.incomplete)
-      .map((r) => r.day),
+    (Array.isArray(incompleteRaw) ? incompleteRaw : []).map(day),
   );
   return [...map.values()]
     .sort((a, b) => a.day.localeCompare(b.day))
@@ -275,14 +274,19 @@ export function notices(hass: Hass, service: Service): string[] {
     status === "no_data"
   )
     result.push(text(status, hass.locale?.language));
-  if (history(service).some((r) => r.incomplete))
+  const incomplete = service.entities.cost_total?.attributes.incomplete_days;
+  if (
+    Array.isArray(incomplete) &&
+    incomplete.some((raw) => day(raw) !== undefined)
+  )
     result.push(text("incomplete", hass.locale?.language));
   // Global refresh diagnostics have no account metadata; report failures without exposing error payloads.
-  for (const refresh of globalEntities(hass, "refresh_status"))
+  const refreshes = globalEntities(hass, "refresh_status");
+  for (const refresh of refreshes)
     if (refresh.state === "error") {
       const raw = refresh.attributes.last_successful_refresh;
       result.push(
-        `${text("stale", hass.locale?.language)}${typeof raw === "string" ? ` Last successful refresh: ${timestampLabel(raw, hass)}.` : ""}`,
+        `${refreshes.length === 1 ? text("stale", hass.locale?.language) : "A GloBird connection reported a refresh failure. Check integration diagnostics; the affected account cannot be identified here."}${typeof raw === "string" ? ` Connection's last successful refresh: ${timestampLabel(raw, hass)}.` : ""}`,
       );
     }
   return result;

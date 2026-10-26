@@ -100,7 +100,7 @@ describe("aligned telemetry", () => {
     e.attributes.refresh_error = "private exception";
     const s = services(h)[0];
     if (!s) throw new Error("Expected synthetic fixture value");
-    expect(notices(h, s).join()).toContain("Last successful refresh");
+    expect(notices(h, s).join()).toContain("last successful refresh");
     expect(notices(h, s).join()).not.toContain("private exception");
   });
 });
@@ -135,4 +135,41 @@ it("does not expose empty register-only groups as selectable services", () => {
     },
   };
   expect(services(h)).toHaveLength(2);
+});
+
+it("keeps older and cost-only incomplete recorder days out of comparisons", () => {
+  const h = syntheticHass(),
+    service = services(h)[0],
+    cost = h.states["sensor.demo_cost_total"];
+  if (!service || !cost) throw new Error("fixture missing");
+  cost.attributes.incomplete_days = ["2030/04/10", "2030-04-11"];
+  const result = {
+    "globird:demo_import": [
+      { start: Date.parse("2030-04-09T14:00Z"), change: 1 },
+    ],
+    "globird:demo_cost": [
+      { start: Date.parse("2030-04-09T14:00Z"), change: 9 },
+      { start: Date.parse("2030-04-10T14:00Z"), change: 2 },
+    ],
+  };
+  const rows = statisticsRows(result, service, h);
+  expect(rows).toHaveLength(2);
+  expect(rows.every((r) => r.incomplete && r.cost === undefined)).toBe(true);
+  expect(aligned(rows)).toEqual([]);
+});
+it("does not attribute an ambiguous connection failure to a healthy account", () => {
+  const h = syntheticHass(),
+    service = services(h)[0];
+  if (!service) throw new Error("fixture missing");
+  h.states["sensor.other_refresh"] = {
+    entity_id: "sensor.other_refresh",
+    state: "error",
+    attributes: {
+      globird_sensor_key: "refresh_status",
+      last_successful_refresh: "2030-04-01T00:00:00Z",
+    },
+  };
+  const warnings = notices(h, service).join();
+  expect(warnings).toContain("affected account cannot be identified");
+  expect(warnings).not.toContain("Showing the last successful data");
 });

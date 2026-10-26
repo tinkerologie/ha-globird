@@ -3,7 +3,8 @@
   "name": "GloBird",
   "after_dependencies": [
     "frontend",
-    "http"
+    "http",
+    "lovelace"
   ],
   "codeowners": [
     "@ruaan-deysel"

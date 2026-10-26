@@ -29,3 +29,6 @@ frontend/test-results/
 frontend/playwright-report/
 frontend/coverage/
 *.trace.zip
+
+# Generated Python coverage upload
+coverage.xml

@@ -175,7 +175,7 @@ automation:
 
 ## Dashboard cards
 
-Four cards ship with the integration. Restart Home Assistant after updating, then refresh the browser. The integration loads its bundled module automatically; no HACS frontend download or manual Lovelace resource is needed. Open **Edit dashboard → Add card** and search for **GloBird**. Each card has a visual editor with a service/entity selector, optional title, default service type, history source and history length.
+Four cards ship with the integration. Restart Home Assistant after updating, then refresh the browser. In storage mode, the integration manages one versioned Lovelace module resource automatically; no HACS frontend download or manual resource is needed. Loading through Lovelace ensures Home Assistant has installed its custom-element registry before the cards register. Open **Edit dashboard → Add card** and search for **GloBird**. Each card has a visual editor with a service/entity selector, optional title, default service type, history source and history length.
 
 | Type | Contents |
 | --- | --- |
@@ -218,3 +218,15 @@ The estimated bill is the integration's existing **30-day projection**, calculat
 Both discovery attributes are excluded from recorder attributes. No credentials or portal API calls are included in the frontend bundle. The module remains registered when a config entry reloads or unloads. If HTTP/frontend is absent, sensors continue working without the cards.
 
 For development, use Node 24 (`frontend/.nvmrc`), run `npm ci` in `frontend`, and run `script/frontend`. TypeScript is pinned to stable **7.0.2** with `tsc --noEmit`; Lit is bundled locally. `npm run verify-bundle` rebuilds and rejects a bundle that differs from the committed asset. Research and compatibility evidence are in [dashboard-cards-research.md](docs/dashboard-cards-research.md).
+
+### YAML-mode dashboard resources
+
+For YAML-mode Lovelace, declare the module in your existing resources configuration so it loads after the Home Assistant frontend starts. The optional extra-module fallback is retained, but an explicit YAML resource avoids early registration before Home Assistant installs its scoped registry. Keep the query version aligned with your installed integration version and change it when updating.
+
+```yaml
+resources:
+  - url: /globird_frontend/globird-cards.js?v=2026.10.4
+    type: module
+```
+
+The CI coverage report compares Python coverage with the actual PR base and requires no regression; browser tests separately verify card behavior and accessibility.

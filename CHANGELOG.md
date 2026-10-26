@@ -12,6 +12,11 @@ This project uses Home Assistant's calendar versioning scheme (`YYYY.M.P`, for e
 - Recorder-excluded `globird_sensor_key` and `statistic_id` discovery metadata. Existing sensor values and statistics are unchanged. Optional history reads existing daily recorder changes, with no additional portal requests.
 - Automatic, cache-versioned card loading through supported asynchronous HTTP and frontend helpers, plus TypeScript 7.0.2 build, unit/browser tests and CI verification of the bundled module.
 
+### Fixed
+
+- Avoid fresh-tab configuration errors caused by extra modules registering cards before Home Assistant replaces its custom-element registry. Storage dashboards now use a managed Lovelace module resource; YAML resource setup is documented.
+- Preserve all incomplete-day markers in longer recorder history, avoid attributing an ambiguous connection failure to the selected account, and provision Chromium in the full local frontend check.
+
 ## [2026.10.4] - 2026-10-17
 
 ### Fixed

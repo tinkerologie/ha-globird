@@ -101,3 +101,25 @@ for (const dark of [false, true])
     });
     expect(violations).toEqual([]);
   });
+
+test("reproduces why modules must load after HA installs its scoped registry", async ({
+  page,
+}) => {
+  await page.goto("/early-registry");
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-before-polyfill",
+    "true",
+  );
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-after-polyfill",
+    "false",
+  );
+  // Normal harness uses the native Lovelace resource order: polyfill, then cards.
+  await page.goto("/");
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-duplicate-module",
+    "loaded",
+  );
+  for (const tag of tags)
+    await expect(page.locator(tag).getByRole("heading")).toBeVisible();
+});
