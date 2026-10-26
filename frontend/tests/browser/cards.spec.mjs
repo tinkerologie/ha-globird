@@ -13,6 +13,10 @@ test("all built cards, duplicate registration, more-info and mobile layouts", as
   page.on("pageerror", (e) => errors.push(e.message));
   await page.setViewportSize({ width: 360, height: 900 });
   await page.goto("/");
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-duplicate-module",
+    "loaded",
+  );
   for (const tag of tags)
     await expect(page.locator(tag).getByRole("heading")).toBeVisible();
   await expect(page.locator("globird-latest-day-card")).toContainText("-5 kWh");

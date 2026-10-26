@@ -139,7 +139,7 @@ export function services(hass?: Hass): Service[] {
       group.entities[a.globird_sensor_key] = entity;
     groups.set(key, group);
   }
-  return [...groups.values()];
+  return [...groups.values()].filter((s) => Object.keys(s.entities).length > 0);
 }
 export function globalEntities(hass: Hass, key: string): Entity[] {
   return Object.values(hass.states).filter(

@@ -23,7 +23,10 @@ export class CardEditor extends LitElement {
     if (control.value === "") delete next[key];
     else if (key === "history_days") {
       const n = Number(control.value);
-      if (!Number.isInteger(n) || n < 1 || n > 31) return;
+      if (!Number.isInteger(n) || n < 1 || n > 31) {
+        control.value = String(this.config.history_days ?? 7);
+        return;
+      }
       next.history_days = n;
     } else Object.assign(next, { [key]: control.value });
     this.config = next;

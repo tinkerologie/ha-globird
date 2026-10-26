@@ -45,8 +45,10 @@ export abstract class GloBirdCard extends LitElement {
   declare protected historyError: boolean;
   declare protected historyLoading: boolean;
   private historyKey = "";
+  private serviceSelections: Partial<Record<Service["type"], string>> = {};
   private request = 0;
   static cardTitle = "GloBird";
+  static iconPath = "M13 2 3 14h7l-1 8L21 9h-8l1-7z";
   static accountCard = false;
   constructor() {
     super();
@@ -97,6 +99,7 @@ export abstract class GloBirdCard extends LitElement {
       throw new Error("Unknown service type.");
     this.config = { ...config };
     this.selected = undefined;
+    this.serviceSelections = {};
   }
   getCardSize() {
     return 4;
@@ -258,7 +261,7 @@ export abstract class GloBirdCard extends LitElement {
         ? text("unavailable")
         : n === undefined
           ? text("noData")
-          : format(n, this.hass as Hass, unit);
+          : html`${format(n, this.hass as Hass, unit === "AUD" ? unit : undefined)}${unit && unit !== "AUD" ? html`<span class="unit"> ${unit}</span>` : nothing}`;
     return html`<button class="metric" type="button" ?disabled=${!entity} @click=${() => entity && this.dispatchEvent(new CustomEvent("hass-more-info", { detail: { entityId: entity.entity_id }, bubbles: true, composed: true }))}><span class="label">${label}</span><span class="value">${display}</span>${n !== undefined && n < 0 && unit === "AUD" ? html`<small>Credit</small>` : nothing}${options.note ? html`<small>${options.note}</small>` : nothing}</button>`;
   }
   private selector() {
@@ -276,16 +279,39 @@ export abstract class GloBirdCard extends LitElement {
       ["electricity", "gas"] as const
     ).map((type) => {
       const candidates = same.filter((s) => s.type === type);
+      const remembered =
+        candidates.find((s) => s.id === this.serviceSelections[type]) ??
+        candidates.find((s) =>
+          Object.values(s.entities).some(
+            (e) => e.entity_id === this.config.entity,
+          ),
+        );
       const target =
         active.type === type
           ? active
-          : candidates.length === 1
-            ? candidates[0]
-            : undefined;
+          : (remembered ??
+            (candidates.length === 1 ? candidates[0] : undefined));
       return html`<label class="choice"><input type="radio" name="energy-service" value=${type} .checked=${active.type === type} ?disabled=${!target} @change=${() => {
-        if (target) this.selected = target.id;
+        if (target) {
+          this.serviceSelections[active.type] = active.id;
+          this.serviceSelections[type] = target.id;
+          this.selected = target.id;
+        }
       }}>${text(type)}</label>`;
-    })}</fieldset>`;
+    })}</fieldset>${(["electricity", "gas"] as const).map((type) => {
+      const candidates = same.filter((s) => s.type === type);
+      if (candidates.length < 2) return nothing;
+      return html`<label class="service-picker">${text(type)} service<select aria-label=${`${text(type)} service`} .value=${active.type === type ? active.id : (this.serviceSelections[type] ?? "")} @change=${(
+        event: Event,
+      ) => {
+        const id = (event.target as HTMLSelectElement).value;
+        if (candidates.some((s) => s.id === id)) {
+          this.serviceSelections[active.type] = active.id;
+          this.serviceSelections[type] = id;
+          this.selected = id;
+        }
+      }}><option value="">Select a service</option>${candidates.map((s, i) => html`<option value=${s.id} .selected=${(active.type === type ? active.id : this.serviceSelections[type]) === s.id}>${text(type)} service ${i + 1}</option>`)}</select></label>`;
+    })}`;
   }
   protected gasReading() {
     const e = this.service?.entities.latest_gas_reading;
@@ -309,6 +335,6 @@ export abstract class GloBirdCard extends LitElement {
     const cardClass = this.constructor as typeof GloBirdCard;
     const service = this.service;
     const ready = this.hass && (cardClass.accountCard || service);
-    return html`<ha-card><header><span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M13 2 3 14h7l-1 8L21 9h-8l1-7z"/></svg></span><div><h2>${this.config.title || cardClass.cardTitle}</h2><p class="subtitle">GloBird Energy${service ? ` · ${text(service.type)}` : ""}</p></div></header><div class="body">${ready ? html`${cardClass.accountCard ? nothing : this.selector()}${this.content()}${service ? notices(this.hass as Hass, service).map((n) => html`<p class="notice" role="status">${n}</p>`) : nothing}${this.historyLoading ? html`<p class="subtitle" role="status">Loading daily statistics…</p>` : nothing}${this.historyError ? html`<p class="notice" role="status">${text("historyError")}</p>` : nothing}` : html`<p class="empty" role="status">${this.hass ? text("choose") : text("loading")}</p>`}</div></ha-card>`;
+    return html`<ha-card><header><span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path fill="currentColor" d=${cardClass.iconPath}/></svg></span><div><h2>${this.config.title || cardClass.cardTitle}</h2><p class="subtitle">GloBird Energy${service ? ` · ${text(service.type)}` : ""}</p></div></header><div class="body">${ready ? html`${cardClass.accountCard ? nothing : this.selector()}${this.content()}${service ? notices(this.hass as Hass, service).map((n) => html`<p class="notice" role="status">${n}</p>`) : nothing}${this.historyLoading ? html`<p class="subtitle" role="status">Loading daily statistics…</p>` : nothing}${this.historyError ? html`<p class="notice" role="status">${text("historyError")}</p>` : nothing}` : html`<p class="empty" role="status">${!this.hass || !Object.values(this.hass.states).some((e) => e.attributes.globird_sensor_key) ? text("loading") : text("choose")}</p>`}</div></ha-card>`;
   }
 }

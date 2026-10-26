@@ -133,3 +133,72 @@ it("fetches optional statistics once and discards results after service changes"
   await c.updateComplete;
   expect(c.shadowRoot?.textContent).toContain("Gas meter reading");
 });
+
+it("does not pair two missing dates as a matching cost or export day", async () => {
+  const h = syntheticHass();
+  for (const key of [
+    "latest_day_usage",
+    "latest_day_cost",
+    "latest_day_solar_export",
+  ]) {
+    const e = h.states[`sensor.demo_${key}`];
+    if (!e) throw new Error("fixture missing");
+    delete e.attributes.latest_day;
+  }
+  const c = await card("globird-latest-day-card", h);
+  const metrics = [...(c.shadowRoot?.querySelectorAll(".metric") ?? [])];
+  expect(
+    metrics.find((e) => e.textContent?.includes("Net cost"))?.textContent,
+  ).toContain("No data");
+  expect(
+    metrics.find((e) => e.textContent?.includes("Net grid usage"))?.textContent,
+  ).toContain("No data");
+});
+it("preserves the selected electricity service when switching to gas and back", async () => {
+  const h = syntheticHass();
+  const original = h.states["sensor.demo_usage_total"];
+  if (!original) throw new Error("fixture missing");
+  h.states["sensor.other_electric"] = {
+    ...original,
+    entity_id: "sensor.other_electric",
+    attributes: {
+      ...original.attributes,
+      account_service_id: "second-electric",
+    },
+  };
+  const c = await card("globird-latest-day-card", h, {
+    entity: "sensor.demo_latest_day_usage",
+  });
+  c.shadowRoot?.querySelector<HTMLInputElement>('input[value="gas"]')?.click();
+  await c.updateComplete;
+  const electricity = c.shadowRoot?.querySelector<HTMLInputElement>(
+    'input[value="electricity"]',
+  );
+  expect(electricity?.disabled).toBe(false);
+  electricity?.click();
+  await c.updateComplete;
+  expect(c.shadowRoot?.textContent).toContain("-5");
+  expect(
+    c.shadowRoot?.querySelector('select[aria-label="Electricity service"]'),
+  ).toBeTruthy();
+});
+it("rejects invalid history input visibly without emitting a changed config", async () => {
+  const editor = document.createElement("globird-card-editor") as CardEditor;
+  editor.setConfig({
+    type: "custom:globird-electricity-usage-card",
+    history_days: 10,
+  });
+  editor.hass = syntheticHass();
+  document.body.append(editor);
+  await editor.updateComplete;
+  const input = editor.shadowRoot?.querySelector<HTMLInputElement>(
+    'input[type="number"]',
+  );
+  if (!input) throw new Error("missing history control");
+  const fn = vi.fn();
+  editor.addEventListener("config-changed", fn);
+  input.value = "40";
+  input.dispatchEvent(new Event("change"));
+  expect(input.value).toBe("10");
+  expect(fn).not.toHaveBeenCalled();
+});

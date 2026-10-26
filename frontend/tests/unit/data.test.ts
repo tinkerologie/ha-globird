@@ -6,6 +6,7 @@ import {
   format,
   history,
   latestLabel,
+  midnight,
   notices,
   number,
   services,
@@ -112,4 +113,26 @@ it("never exposes a cumulative sum as usage when change is missing", () => {
   expect(statisticsRows({ "globird:demo_import": [cumulative] }, s, h)).toEqual(
     [],
   );
+});
+
+it("builds explicit local midnight bounds across DST changes", () => {
+  const h = syntheticHass();
+  h.config.time_zone = "America/New_York";
+  expect(midnight(h, "2030-03-10")).toBe("2030-03-10T05:00:00.000Z");
+  expect(midnight(h, "2030-03-11")).toBe("2030-03-11T04:00:00.000Z");
+});
+
+it("does not expose empty register-only groups as selectable services", () => {
+  const h = syntheticHass();
+  h.states["sensor.register_only"] = {
+    entity_id: "sensor.register_only",
+    state: "2",
+    attributes: {
+      globird_sensor_key: "register",
+      account_id: "demo-account",
+      account_service_id: "register-only",
+      service_type: "Electricity",
+    },
+  };
+  expect(services(h)).toHaveLength(2);
 });

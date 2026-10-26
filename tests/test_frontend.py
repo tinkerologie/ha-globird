@@ -67,7 +67,10 @@ def test_concurrent_setup_registers_one_cache_busted_bundle(frontend_hass: Any) 
     assert len(frontend_hass.paths) == len(frontend_hass.urls) == 1
     assert frontend_hass.paths[0].path == str(frontend.BUNDLE_PATH)
     digest = hashlib.sha256(frontend.BUNDLE_PATH.read_bytes()).hexdigest()[:12]
-    assert frontend_hass.urls == [f"{frontend.BUNDLE_URL}?v=2026.10.4-{digest}"]
+    version = tomllib.loads((Path(__file__).parents[1] / "pyproject.toml").read_text())[
+        "project"
+    ]["version"]
+    assert frontend_hass.urls == [f"{frontend.BUNDLE_URL}?v={version}-{digest}"]
 
 
 @pytest.mark.parametrize("missing", ["http", "frontend"])

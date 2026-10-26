@@ -49,5 +49,11 @@ module.onload = async () => {
   const duplicate = document.createElement("script");
   duplicate.type = "module";
   duplicate.src = "/cards.js?second";
+  duplicate.onload = () => {
+    document.documentElement.dataset.duplicateModule = "loaded";
+  };
+  duplicate.onerror = () => {
+    document.documentElement.dataset.duplicateModule = "failed";
+  };
   document.head.append(duplicate);
 };

@@ -4,6 +4,8 @@ import type { Hass } from "../types";
 import { GloBirdCard } from "./base";
 export class LatestDayCard extends GloBirdCard {
   static override cardTitle = "Latest day usage";
+  static override iconPath =
+    "M5 2h2v3h10V2h2v3h3v17H2V5h3V2m-1 8v10h16V10H4m3 3h4v4H7v-4";
   protected override content() {
     if (this.service?.type === "gas") return this.gasReading();
     const e = this.service?.entities ?? {},
@@ -11,15 +13,19 @@ export class LatestDayCard extends GloBirdCard {
     const d = day(e.latest_day_usage?.attributes.latest_day);
     const u = number(e.latest_day_usage?.state);
     const exportEntity =
+      d !== undefined &&
       day(e.latest_day_solar_export?.attributes.latest_day) === d
         ? e.latest_day_solar_export
         : undefined;
     const exported = number(exportEntity?.state);
     const cost =
-      e.latest_day_cost && day(e.latest_day_cost.attributes.latest_day) === d
+      d !== undefined &&
+      e.latest_day_cost &&
+      day(e.latest_day_cost.attributes.latest_day) === d
         ? e.latest_day_cost
         : undefined;
     const controlled =
+      d !== undefined &&
       day(e.latest_day_controlled_load?.attributes.latest_day) === d
         ? e.latest_day_controlled_load
         : undefined;

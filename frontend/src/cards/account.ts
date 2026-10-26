@@ -4,6 +4,7 @@ import type { Hass } from "../types";
 import { GloBirdCard } from "./base";
 export class AccountCard extends GloBirdCard {
   static override cardTitle = "Account summary";
+  static override iconPath = "M3 4h18v3H3V4m0 5h18v11H3V9m3 4v3h6v-3H6";
   static override accountCard = true;
   protected override content() {
     const hass = this.hass as Hass;
