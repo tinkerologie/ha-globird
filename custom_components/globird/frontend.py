@@ -10,7 +10,7 @@ from contextlib import suppress
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from .const import DOMAIN
+from homeassistant.util.hass_dict import HassKey
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -19,6 +19,8 @@ _LOGGER = logging.getLogger(__name__)
 BUNDLE_PATH = Path(__file__).parent / "www" / "globird-cards.js"
 BUNDLE_URL = "/globird_frontend/globird-cards.js"
 OWNED_PREFIX = "/globird_frontend/"
+# Static assets are shared across entries and outlive individual entry unloads.
+FRONTEND_DATA: HassKey[dict[str, Any]] = HassKey("globird_frontend")
 
 
 def _versioned_url() -> str:
@@ -66,6 +68,16 @@ async def _async_reconcile_resources(resources: Any, url: str) -> None:
                 await resources.async_delete_item(item["id"])
 
 
+def _remove_fallback(hass: HomeAssistant) -> None:
+    """Stop advertising the early module once native resources take over."""
+    from homeassistant.components.frontend import remove_extra_js_url
+
+    data = hass.data[FRONTEND_DATA]
+    if (url := data.get("frontend_extra_url")) is not None:
+        remove_extra_js_url(hass, url)
+        data.pop("frontend_extra_url", None)
+
+
 async def _async_fallback(hass: HomeAssistant, url: str, resources: Any = None) -> None:
     """Avoid duplicate YAML paths and advertise the optional fallback once."""
     from homeassistant.components.frontend import add_extra_js_url
@@ -77,8 +89,9 @@ async def _async_fallback(hass: HomeAssistant, url: str, resources: Any = None) 
             item["url"].partition("?")[0] == BUNDLE_URL
             for item in resources.async_items()
         ):
+            _remove_fallback(hass)
             return
-    data = hass.data[DOMAIN]
+    data = hass.data[FRONTEND_DATA]
     if data.get("frontend_extra_url") == url:
         return
     add_extra_js_url(hass, url)
@@ -96,7 +109,7 @@ async def async_register_frontend(hass: HomeAssistant, *, _force: bool = False) 
     if not {"http", "frontend"} <= hass.config.components:
         _LOGGER.debug("Skipping %s: HTTP/frontend not loaded", BUNDLE_URL)
         return
-    data = hass.data.setdefault(DOMAIN, {})
+    data = hass.data.setdefault(FRONTEND_DATA, {})
     lock = data.setdefault("frontend_lock", asyncio.Lock())
     async with lock:
         resources, storage_mode = _resource_collection(hass)
@@ -115,10 +128,19 @@ async def async_register_frontend(hass: HomeAssistant, *, _force: bool = False) 
                 )
                 data["frontend_static_registered"] = True
             if storage_mode:
+                if not data.get("frontend_reconcile_scheduled"):
+                    from homeassistant.helpers.start import async_at_started
+
+                    async def after_start(started_hass: HomeAssistant) -> None:
+                        await async_register_frontend(started_hass, _force=True)
+
+                    data["frontend_reconcile_scheduled"] = True
+                    async_at_started(hass, after_start)
                 try:
                     # Extra modules may run before HA replaces its native
                     # custom-element registry. Lovelace resources run afterwards.
                     await _async_reconcile_resources(resources, url)
+                    _remove_fallback(hass)
                 except Exception as err:
                     _LOGGER.warning(
                         "Unable to reconcile %s in storage mode (%s): %s",
@@ -130,14 +152,6 @@ async def async_register_frontend(hass: HomeAssistant, *, _force: bool = False) 
                     data.pop("frontend_registration_key", None)
                     data.pop("frontend_registered", None)
                     return
-                if not data.get("frontend_reconcile_scheduled"):
-                    from homeassistant.helpers.start import async_at_started
-
-                    async def after_start(started_hass: HomeAssistant) -> None:
-                        await async_register_frontend(started_hass, _force=True)
-
-                    data["frontend_reconcile_scheduled"] = True
-                    async_at_started(hass, after_start)
             else:
                 await _async_fallback(hass, url, resources)
         except Exception as err:

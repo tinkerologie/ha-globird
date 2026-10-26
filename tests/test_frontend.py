@@ -22,14 +22,19 @@ def frontend_hass(monkeypatch: Any) -> Any:
     urls: list[str] = []
     paths: list[Any] = []
     extra_urls: list[str] = []
+    active_extra_urls: set[str] = set()
     fail = [False]
     frontend_module = types.ModuleType("homeassistant.components.frontend")
 
     def add_extra(_hass: Any, url: str) -> None:
         urls.append(url)
         extra_urls.append(url)
+        active_extra_urls.add(url)
 
     frontend_module.add_extra_js_url = add_extra
+    frontend_module.remove_extra_js_url = lambda _hass, url: active_extra_urls.discard(
+        url
+    )
     http_module = types.ModuleType("homeassistant.components.http")
     http_module.StaticPathConfig = lambda url, path, **kw: types.SimpleNamespace(
         url_path=url, path=path, **kw
@@ -113,6 +118,7 @@ def frontend_hass(monkeypatch: Any) -> Any:
         resources=resources,
         started_callbacks=started_callbacks,
         extra_urls=extra_urls,
+        active_extra_urls=active_extra_urls,
         config=types.SimpleNamespace(components={"http", "frontend"}),
         http=types.SimpleNamespace(async_register_static_paths=register),
         async_add_executor_job=executor,
@@ -187,7 +193,7 @@ def test_multiple_entries_preserve_module_on_unload(
         assert frontend_hass.data["globird"][first.entry_id] is first.runtime_data
         assert frontend_hass.data["globird"][second.entry_id] is second.runtime_data
         await integration.async_unload_entry(frontend_hass, first)
-        assert frontend_hass.data["globird"]["frontend_registered"]
+        assert frontend_hass.data[frontend.FRONTEND_DATA]["frontend_registered"]
         assert second.entry_id in frontend_hass.data["globird"]
         assert first.entry_id not in frontend_hass.data["globird"]
 
@@ -292,12 +298,13 @@ def test_resource_failure_falls_back_and_remains_retryable(
     assert len(frontend_hass.extra_urls) == 1
     assert asyncio.run(integration.async_setup(frontend_hass, {}))
     assert len(frontend_hass.extra_urls) == 1
-    assert not frontend_hass.data["globird"].get("frontend_registered")
+    assert not frontend_hass.data[frontend.FRONTEND_DATA].get("frontend_registered")
     frontend_hass.resources.fail_stage = None
     asyncio.run(frontend.async_register_frontend(frontend_hass))
-    assert frontend_hass.data["globird"]["frontend_registered"]
+    assert frontend_hass.data[frontend.FRONTEND_DATA]["frontend_registered"]
     assert len(frontend_hass.paths) == 1
     assert len(frontend_hass.resources.items) == 1
+    assert not frontend_hass.active_extra_urls
 
 
 def test_yaml_explicit_resource_has_no_extra_module(frontend_hass: Any) -> None:
@@ -344,7 +351,7 @@ def test_concurrent_resource_deletion_is_already_done(frontend_hass: Any) -> Non
 
     frontend_hass.resources.async_delete_item = removed_elsewhere
     asyncio.run(frontend.async_register_frontend(frontend_hass))
-    assert frontend_hass.data["globird"]["frontend_registered"]
+    assert frontend_hass.data[frontend.FRONTEND_DATA]["frontend_registered"]
     assert len(frontend_hass.resources.items) == 1
 
 
@@ -356,3 +363,33 @@ def test_yaml_lazy_load_precedes_fallback_detection(frontend_hass: Any) -> None:
     asyncio.run(frontend.async_register_frontend(frontend_hass))
     assert frontend_hass.resources.loaded
     assert len(frontend_hass.extra_urls) == 1
+
+
+def test_initial_failure_is_retried_automatically_at_started(
+    frontend_hass: Any,
+) -> None:
+    async def run() -> None:
+        frontend_hass.resources.fail_stage = "create"
+        await frontend.async_register_frontend(frontend_hass)
+        assert len(frontend_hass.started_callbacks) == 1
+        assert len(frontend_hass.active_extra_urls) == 1
+        frontend_hass.resources.fail_stage = None
+        await frontend_hass.started_callbacks[0](frontend_hass)
+        assert len(frontend_hass.resources.items) == 1
+        assert not frontend_hass.active_extra_urls
+        assert "frontend_extra_url" not in frontend_hass.data[frontend.FRONTEND_DATA]
+
+    asyncio.run(run())
+
+
+def test_explicit_yaml_resource_removes_previous_extra_fallback(
+    frontend_hass: Any,
+) -> None:
+    frontend_hass.data["lovelace"].resources = None
+    asyncio.run(frontend.async_register_frontend(frontend_hass))
+    assert len(frontend_hass.active_extra_urls) == 1
+    frontend_hass.data["lovelace"].resources = types.SimpleNamespace(
+        async_items=lambda: [{"url": frontend.BUNDLE_URL, "type": "module"}]
+    )
+    asyncio.run(frontend.async_register_frontend(frontend_hass))
+    assert not frontend_hass.active_extra_urls
