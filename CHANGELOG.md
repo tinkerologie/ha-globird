@@ -6,6 +6,8 @@ This project uses Home Assistant's calendar versioning scheme (`YYYY.M.P`, for e
 
 ## [Unreleased]
 
+## [2026.10.5] - 2026-10-26
+
 ### Added
 
 - Four bundled GloBird dashboard cards: usage and cost, electricity usage with daily charts, latest-day usage or gas meter reading, and account summary. Cards include accessible visual editors, Home Assistant theme support, service selection, Sections sizing, and clear pending, incomplete and stale data notices ([#27](https://github.com/tinkerologie/ha-globird/issues/27)).
