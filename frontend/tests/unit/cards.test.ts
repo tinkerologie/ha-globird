@@ -202,3 +202,22 @@ it("rejects invalid history input visibly without emitting a changed config", as
   expect(input.value).toBe("10");
   expect(fn).not.toHaveBeenCalled();
 });
+it("switches the daily chart between usage and cost", async () => {
+  const c = await card("globird-electricity-usage-card");
+  const root = c.shadowRoot;
+  const cost = root?.querySelector<HTMLInputElement>(
+    'input[name="chart-mode"][value="cost"]',
+  );
+  if (!cost) throw new Error("missing chart mode switch");
+  cost.click();
+  await c.updateComplete;
+  expect(root?.querySelector(".legend")?.textContent).toContain("Net cost");
+});
+it("shows data notices as alerts with an icon", async () => {
+  const c = await card("globird-latest-day-card", syntheticHass(), {
+    entity: "sensor.demo_latest_gas_reading_gas",
+  });
+  const alertEl = c.shadowRoot?.querySelector(".alert");
+  expect(alertEl?.getAttribute("role")).toBe("status");
+  expect(alertEl?.querySelector("svg")).not.toBeNull();
+});

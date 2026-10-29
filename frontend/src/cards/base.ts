@@ -3,21 +3,35 @@ import {
   LitElement,
   nothing,
   type PropertyValues,
-  svg,
   type TemplateResult,
 } from "lit";
+import { type ChartMode, dailyChart, gasChart, gasReads } from "../charts";
 import {
   dateLabel,
   format,
   history,
   midnight,
-  notices,
+  noticeItems,
   number,
   services,
   statisticsRows,
   today,
 } from "../data";
 import { text } from "../strings";
+export type AlertTone = "info" | "warning" | "success";
+const alertIcons: Record<AlertTone, string> = {
+  info: "M11 9h2V7h-2m1 13c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8m0-18A10 10 0 0 0 2 12a10 10 0 0 0 10 10 10 10 0 0 0 10-10A10 10 0 0 0 12 2m-1 15h2v-6h-2z",
+  warning: "M12 2 1 21h22M12 6l7.53 13H4.47M11 10v4h2v-4m-2 6v2h2v-2",
+  success:
+    "M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2m0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8m4.59-12.42L10 14.17l-2.59-2.58L6 13l4 4 8-8z",
+};
+/** A tinted, icon-led status message in the style of Home Assistant alerts. */
+export function alert(message: unknown, tone: AlertTone = "info") {
+  return html`<p class="alert ${tone}" role="status"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d=${alertIcons[tone]}/></svg><span>${message}</span></p>`;
+}
+/** The disclosure chevron of a details summary; it rotates when open. */
+export const chevron = html`<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M7.41 8.58 12 13.17l4.59-4.59L18 10l-6 6-6-6z"/></svg>`;
+
 import { styles } from "../styles";
 import type {
   CardConfig,
@@ -37,6 +51,7 @@ export abstract class GloBirdCard extends LitElement {
     statRows: { state: true },
     historyError: { state: true },
     historyLoading: { state: true },
+    chartMode: { state: true },
   };
   declare hass?: Hass;
   declare config: CardConfig;
@@ -44,6 +59,7 @@ export abstract class GloBirdCard extends LitElement {
   declare protected statRows?: DayRow[];
   declare protected historyError: boolean;
   declare protected historyLoading: boolean;
+  declare protected chartMode: ChartMode;
   private historyKey = "";
   private serviceSelections: Partial<Record<Service["type"], string>> = {};
   private request = 0;
@@ -55,6 +71,7 @@ export abstract class GloBirdCard extends LitElement {
     this.config = { type: "" };
     this.historyError = false;
     this.historyLoading = false;
+    this.chartMode = "usage";
   }
   static getConfigElement() {
     return document.createElement("globird-card-editor");
@@ -256,13 +273,14 @@ export abstract class GloBirdCard extends LitElement {
       (typeof entity?.attributes.unit_of_measurement === "string"
         ? entity.attributes.unit_of_measurement
         : undefined);
+    const missing = entity?.state === "unavailable" || n === undefined;
     const display =
       entity?.state === "unavailable"
         ? text("unavailable")
         : n === undefined
           ? text("noData")
           : html`${format(n, this.hass as Hass, unit === "AUD" ? unit : undefined)}${unit && unit !== "AUD" ? html`<span class="unit"> ${unit}</span>` : nothing}`;
-    return html`<button class="metric" type="button" ?disabled=${!entity} @click=${() => entity && this.dispatchEvent(new CustomEvent("hass-more-info", { detail: { entityId: entity.entity_id }, bubbles: true, composed: true }))}><span class="label">${label}</span><span class="value">${display}</span>${n !== undefined && n < 0 && unit === "AUD" ? html`<small>Credit</small>` : nothing}${options.note ? html`<small>${options.note}</small>` : nothing}</button>`;
+    return html`<button class="metric" type="button" ?disabled=${!entity} @click=${() => entity && this.dispatchEvent(new CustomEvent("hass-more-info", { detail: { entityId: entity.entity_id }, bubbles: true, composed: true }))}><span class="label">${label}</span><span class="value ${missing ? "muted" : ""}">${display}</span>${n !== undefined && n < 0 && unit === "AUD" ? html`<small>Credit</small>` : nothing}${options.note ? html`<small>${options.note}</small>` : nothing}</button>`;
   }
   private selector() {
     const active = this.service;
@@ -314,27 +332,42 @@ export abstract class GloBirdCard extends LitElement {
     })}`;
   }
   protected gasReading() {
-    const e = this.service?.entities.latest_gas_reading;
-    return html`<div class="metrics">${this.metric("Gas meter reading", e, { note: e ? dateLabel(e.attributes.latest_reading_date, this.hass as Hass) : undefined })}</div><p class="subtitle">Meter index (m³), not daily consumption. Actual readings may arrive only when the meter is read.</p>`;
+    const e = this.service?.entities.latest_gas_reading,
+      h = this.hass as Hass;
+    const reads = gasReads(e?.attributes.history);
+    const latest = reads.at(-1),
+      previous = reads.at(-2);
+    const used =
+      latest && previous && latest.index >= previous.index
+        ? latest.index - previous.index
+        : undefined;
+    return html`<div class="metrics">${this.metric("Gas meter reading", e, { note: e ? dateLabel(e.attributes.latest_reading_date, h) : undefined })}${this.metric("Used between reads", reads.length > 1 ? e : undefined, { n: used, unit: "m³", note: previous && latest ? `${dateLabel(previous.day, h)} – ${dateLabel(latest.day, h)}` : "Needs two meter reads" })}</div>${gasChart(reads, h)}<p class="subtitle">Meter index (m³), not daily consumption. Gas meters are read about every three months.</p>`;
   }
   protected chart(rows: DayRow[]) {
+    const h = this.hass as Hass;
+    if (!rows.some((r) => r.usage !== undefined || r.export !== undefined))
+      return html`<p class="subtitle">No daily readings available.</p>`;
+    const mode = this.chartMode;
     const available = rows.filter(
       (r) => r.usage !== undefined || r.export !== undefined,
     );
-    if (!available.length)
-      return html`<p class="subtitle">No daily readings available.</p>`;
-    const max = Math.max(
-      1,
-      ...available.flatMap((r) => [r.usage ?? 0, r.export ?? 0]),
-    );
-    const w = 300 / available.length;
-    return html`<svg class="chart" viewBox="0 0 320 140" role="img" aria-label="Daily general import and solar export, in kilowatt-hours. Values are available in the daily readings table.">${available.map((r, i) => svg`<g><title>${r.day}: import ${r.usage ?? "no data"} kWh; export ${r.export ?? "no data"} kWh</title>${r.usage === undefined ? nothing : svg`<rect class="import" x=${10 + i * w} y=${115 - (r.usage / max) * 100} width=${Math.max(2, w * 0.32)} height=${Math.max(0, (r.usage / max) * 100)} rx="2"/>`}${r.export === undefined ? nothing : svg`<rect class="export" x=${10 + i * w + w * 0.36} y=${115 - (r.export / max) * 100} width=${Math.max(2, w * 0.32)} height=${Math.max(0, (r.export / max) * 100)} rx="2"/>`}</g>`)}<text x="10" y="136">${dateLabel(available[0]?.day, this.hass as Hass)}</text><text x="310" y="136" text-anchor="end">${dateLabel(available.at(-1)?.day, this.hass as Hass)}</text></svg><div class="legend"><span>General import</span><span>Solar export</span></div><details><summary>Daily readings</summary><table><caption>${available.length} days with available readings. Missing values are not zero.</caption><thead><tr><th scope="col">Date</th><th scope="col">Import (kWh)</th><th scope="col">Export (kWh)</th><th scope="col">Cost (AUD)</th></tr></thead><tbody>${rows.map((r) => html`<tr><th scope="row">${dateLabel(r.day, this.hass as Hass)}</th><td>${r.usage === undefined ? "—" : format(r.usage, this.hass as Hass)}</td><td>${r.export === undefined ? "—" : format(r.export, this.hass as Hass)}</td><td>${r.incomplete ? "Incomplete" : r.cost === undefined ? "—" : format(r.cost, this.hass as Hass, "AUD")}</td></tr>`)}</tbody></table></details>`;
+    return html`<fieldset class="chart-mode"><legend>Chart</legend>${(
+      [
+        ["usage", "Usage (kWh)"],
+        ["cost", "Cost ($)"],
+      ] as const
+    ).map(
+      ([value, label]) =>
+        html`<label class="choice"><input type="radio" name="chart-mode" value=${value} .checked=${mode === value} @change=${() => {
+          this.chartMode = value;
+        }}>${label}</label>`,
+    )}</fieldset>${dailyChart(rows, mode, h)}<details><summary>Daily readings${chevron}</summary><table><caption>${available.length} days with available readings. Missing values are not zero.</caption><thead><tr><th scope="col">Date</th><th scope="col">Import (kWh)</th><th scope="col">Export (kWh)</th><th scope="col">Cost (AUD)</th></tr></thead><tbody>${rows.map((r) => html`<tr><th scope="row">${dateLabel(r.day, h)}</th><td>${r.usage === undefined ? "—" : format(r.usage, h)}</td><td>${r.export === undefined ? "—" : format(r.export, h)}</td><td>${r.incomplete ? "Incomplete" : r.cost === undefined ? "—" : format(r.cost, h, "AUD")}</td></tr>`)}</tbody></table></details>`;
   }
   protected abstract content(): TemplateResult;
   protected override render() {
     const cardClass = this.constructor as typeof GloBirdCard;
     const service = this.service;
     const ready = this.hass && (cardClass.accountCard || service);
-    return html`<ha-card><header><span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path fill="currentColor" d=${cardClass.iconPath}/></svg></span><div><h2>${this.config.title || cardClass.cardTitle}</h2><p class="subtitle">GloBird Energy${service ? ` · ${text(service.type)}` : ""}</p></div></header><div class="body">${ready ? html`${cardClass.accountCard ? nothing : this.selector()}${this.content()}${service ? notices(this.hass as Hass, service).map((n) => html`<p class="notice" role="status">${n}</p>`) : nothing}${this.historyLoading ? html`<p class="subtitle" role="status">Loading daily statistics…</p>` : nothing}${this.historyError ? html`<p class="notice" role="status">${text("historyError")}</p>` : nothing}` : html`<p class="empty" role="status">${!this.hass || !Object.values(this.hass.states).some((e) => e.attributes.globird_sensor_key) ? text("loading") : text("choose")}</p>`}</div></ha-card>`;
+    return html`<ha-card><header><span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path fill="currentColor" d=${cardClass.iconPath}/></svg></span><div><h2>${this.config.title || cardClass.cardTitle}</h2><p class="subtitle">GloBird Energy${service ? ` · ${text(service.type)}` : ""}</p></div></header><div class="body">${ready ? html`${cardClass.accountCard ? nothing : this.selector()}${this.content()}${service ? noticeItems(this.hass as Hass, service).map((n) => alert(n.text, n.tone)) : nothing}${this.historyLoading ? html`<p class="subtitle" role="status">Loading daily statistics…</p>` : nothing}${this.historyError ? alert(text("historyError"), "warning") : nothing}` : html`<p class="empty" role="status">${!this.hass || !Object.values(this.hass.states).some((e) => e.attributes.globird_sensor_key) ? text("loading") : text("choose")}</p>`}</div></ha-card>`;
   }
 }

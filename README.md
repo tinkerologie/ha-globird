@@ -190,13 +190,13 @@ The Repairs issue clears after the old statistics are deleted and Home Assistant
 
 ## Dashboard cards
 
-Four cards ship with the integration. Restart Home Assistant after updating, then refresh the browser. In storage mode, the integration manages one versioned Lovelace module resource automatically; no HACS frontend download or manual resource is needed. Loading through Lovelace ensures Home Assistant has installed its custom-element registry before the cards register. Open **Edit dashboard → Add card** and search for **GloBird**. Each card has a visual editor with a service/entity selector, optional title, default service type, history source and history length.
+Four cards ship with the integration. Restart Home Assistant after updating, then refresh the browser. In storage mode, the integration manages one versioned Lovelace module resource automatically; no HACS frontend download or manual resource is needed. Loading through Lovelace ensures Home Assistant has installed its custom-element registry before the cards register. Open **Edit dashboard → Add card** and search for **GloBird**. On Home Assistant 2026.6 and later, picking a GloBird sensor in the card picker also suggests the matching card. Each card has a visual editor with a service/entity selector, optional title, default service type, history source and history length.
 
 | Type | Contents |
 | --- | --- |
 | `custom:globird-usage-cost-card` | Billing-period cost and days, estimated bill, latest complete cost day |
-| `custom:globird-electricity-usage-card` | Separate general import, solar export and controlled load, daily averages and chart |
-| `custom:globird-latest-day-card` | Latest available usage and matching cost, or an actual gas meter reading |
+| `custom:globird-electricity-usage-card` | Separate general import, solar export and controlled load, daily averages, and a daily chart that switches between usage (import above zero, export below) and cost (credits below zero) |
+| `custom:globird-latest-day-card` | Latest available usage and matching cost, or the gas meter reading, gas used between the last two reads and a meter-read chart |
 | `custom:globird-account-card` | Account balance, invoice and refresh status |
 
 Choose an existing GloBird service sensor in the editor. The companion sensors are discovered through `globird_sensor_key`, so their names can be customised. Select an account explicitly when more than one is present. Electricity/gas selection appears only when that account has both services. Account cards use the **Dashboard Balance** entity; they do not show account numbers or addresses.

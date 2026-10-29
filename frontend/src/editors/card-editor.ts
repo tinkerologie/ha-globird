@@ -1,6 +1,19 @@
 import { css, html, LitElement } from "lit";
 import { globalEntities, services } from "../data";
-import type { CardConfig, Hass } from "../types";
+import type { CardConfig, Entity, Hass, Service } from "../types";
+
+// Friendly names follow the device and entity naming of Home Assistant 2026.11.
+const entityName = (e: Entity) =>
+  typeof e.attributes.friendly_name === "string"
+    ? `${e.attributes.friendly_name} (${e.entity_id})`
+    : e.entity_id;
+const siteLabel = (s: Service) => {
+  const any = Object.values(s.entities)[0];
+  const site = any?.attributes.site_identifier;
+  return typeof site === "string" && site
+    ? `site ${site}`
+    : (any?.entity_id ?? "");
+};
 export class CardEditor extends LitElement {
   static override properties = {
     hass: { attribute: false },
@@ -44,7 +57,7 @@ export class CardEditor extends LitElement {
       ? account
         ? globalEntities(this.hass, "dashboard_balance").map((e, i) => ({
             id: e.entity_id,
-            label: `Account ${i + 1} · ${e.entity_id}`,
+            label: `Account ${i + 1} · ${entityName(e)}`,
           }))
         : services(this.hass).map((s) => ({
             id:
@@ -53,7 +66,7 @@ export class CardEditor extends LitElement {
               )?.entity_id ??
               Object.values(s.entities)[0]?.entity_id ??
               "",
-            label: `${s.type === "gas" ? "Gas" : "Electricity"} · ${Object.values(s.entities)[0]?.entity_id ?? ""}`,
+            label: `${s.type === "gas" ? "Gas" : "Electricity"} · ${siteLabel(s)}`,
           }))
       : [];
     // Preserve any explicitly configured companion entity rather than replacing it on render.

@@ -6,6 +6,10 @@ This project uses Home Assistant's calendar versioning scheme (`YYYY.M.P`, for e
 
 ## [Unreleased]
 
+### Changed
+
+- Refresh the dashboard cards for Home Assistant 2026.10 and later. They now use Home Assistant's spacing, type, radius and colour tokens, a segmented service switch, alert-style notices with icons, and visible hover and focus states. The electricity chart shows import above a zero line and solar export below, with a gridded axis and a **Usage (kWh)** / **Cost ($)** switch. Gas services show gas used between the last two reads and a meter-read chart. Cards are suggested in the card picker for their own GloBird sensors, and the editor lists services by name.
+
 ### Fixed
 
 - Explain the Home Assistant warning that **Latest Gas Reading** "no longer has a state class". A Repairs issue now appears while statistics from before the state class was removed still exist. It names the `globird:` statistic to use in the Energy dashboard and says that deleting the old statistics is optional and safe. See [Legacy gas statistics warning](README.md#legacy-gas-statistics-warning) ([#30](https://github.com/tinkerologie/ha-globird/issues/30)).

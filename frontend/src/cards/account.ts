@@ -1,7 +1,7 @@
 import { html } from "lit";
 import { dateLabel, globalEntities, number, timestampLabel } from "../data";
 import type { Hass } from "../types";
-import { GloBirdCard } from "./base";
+import { alert, GloBirdCard } from "./base";
 export class AccountCard extends GloBirdCard {
   static override cardTitle = "Account summary";
   static override iconPath = "M3 4h18v3H3V4m0 5h18v11H3V9m3 4v3h6v-3H6";
@@ -22,6 +22,6 @@ export class AccountCard extends GloBirdCard {
         ? (invoice as Record<string, unknown>)
         : {};
     const refreshes = globalEntities(hass, "refresh_status");
-    return html`<div class="metrics">${this.metric("Account balance", balance, { unit: "AUD", note: "Negative = credit · positive = amount owing" })}${this.metric("Latest invoice", undefined, { n: number(info.amount), unit: "AUD", note: `Issued ${dateLabel(info.issuedDate, hass)}` })}</div><p class="subtitle">Invoice due: ${dateLabel(info.dueDate, hass)}</p>${refreshes.length === 1 ? html`<p class="notice" role="status">${refreshes[0]?.state === "ok" ? "Data refresh successful" : "Refresh failed or unavailable. Showing last successful data."} Last successful refresh: ${timestampLabel(refreshes[0]?.attributes.last_successful_refresh, hass)}.</p>` : html`<p class="subtitle">Multiple GloBird connections are configured. Use the matching connection’s integration diagnostics to check its refresh status.</p>`}`;
+    return html`<div class="metrics">${this.metric("Account balance", balance, { unit: "AUD", note: "Negative = credit · positive = amount owing" })}${this.metric("Latest invoice", undefined, { n: number(info.amount), unit: "AUD", note: `Issued ${dateLabel(info.issuedDate, hass)}` })}</div><p class="subtitle">Invoice due: ${dateLabel(info.dueDate, hass)}</p>${refreshes.length === 1 ? alert(`${refreshes[0]?.state === "ok" ? "Data refresh successful." : "Refresh failed or unavailable. Showing the last successful data."} Last successful refresh: ${timestampLabel(refreshes[0]?.attributes.last_successful_refresh, hass)}.`, refreshes[0]?.state === "ok" ? "success" : "warning") : html`<p class="subtitle">Multiple GloBird connections are configured. Use the matching connection’s integration diagnostics to check its refresh status.</p>`}`;
   }
 }

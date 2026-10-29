@@ -266,28 +266,39 @@ export function statisticsRows(
     );
 }
 export function notices(hass: Hass, service: Service): string[] {
-  const result: string[] = [];
+  return noticeItems(hass, service).map((n) => n.text);
+}
+/** Data notices with a tone: pending data is information, the rest are warnings. */
+export function noticeItems(
+  hass: Hass,
+  service: Service,
+): { text: string; tone: "info" | "warning" }[] {
+  const result: { text: string; tone: "info" | "warning" }[] = [];
   const status = service.entities.latest_data_status?.state;
   if (
     status === "waiting_for_cost" ||
     status === "waiting_for_usage" ||
     status === "no_data"
   )
-    result.push(text(status, hass.locale?.language));
+    result.push({ text: text(status, hass.locale?.language), tone: "info" });
   const incomplete = service.entities.cost_total?.attributes.incomplete_days;
   if (
     Array.isArray(incomplete) &&
     incomplete.some((raw) => day(raw) !== undefined)
   )
-    result.push(text("incomplete", hass.locale?.language));
+    result.push({
+      text: text("incomplete", hass.locale?.language),
+      tone: "warning",
+    });
   // Global refresh diagnostics have no account metadata; report failures without exposing error payloads.
   const refreshes = globalEntities(hass, "refresh_status");
   for (const refresh of refreshes)
     if (refresh.state === "error") {
       const raw = refresh.attributes.last_successful_refresh;
-      result.push(
-        `${refreshes.length === 1 ? text("stale", hass.locale?.language) : "A GloBird connection reported a refresh failure. Check integration diagnostics; the affected account cannot be identified here."}${typeof raw === "string" ? ` Connection's last successful refresh: ${timestampLabel(raw, hass)}.` : ""}`,
-      );
+      result.push({
+        tone: "warning",
+        text: `${refreshes.length === 1 ? text("stale", hass.locale?.language) : "A GloBird connection reported a refresh failure. Check integration diagnostics; the affected account cannot be identified here."}${typeof raw === "string" ? ` Connection's last successful refresh: ${timestampLabel(raw, hass)}.` : ""}`,
+      });
     }
   return result;
 }
