@@ -1,5 +1,5 @@
 import { html, nothing, svg } from "lit";
-import { dateLabel, format } from "./data";
+import { dateLabel, format, day as parseDay } from "./data";
 import type { DayRow, Hass } from "./types";
 
 export type ChartMode = "usage" | "cost";
@@ -163,8 +163,8 @@ export function gasReads(raw: unknown): GasRead[] {
     if (!row || typeof row !== "object") continue;
     const r = row as Record<string, unknown>;
     const index = typeof r.read_index === "number" ? r.read_index : Number.NaN;
-    const day = typeof r.date === "string" ? r.date.slice(0, 10) : "";
-    if (!Number.isFinite(index) || !/^\d{4}-\d{2}-\d{2}$/.test(day)) continue;
+    const day = parseDay(r.date);
+    if (!Number.isFinite(index) || day === undefined) continue;
     const source = typeof r.source === "string" ? r.source : undefined;
     const prior = byDay.get(day);
     if (!prior || index > prior.index) byDay.set(day, { day, index, source });

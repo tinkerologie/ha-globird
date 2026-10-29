@@ -55,7 +55,7 @@ it("keeps one gas read per day and needs two reads for a chart", () => {
   const reads = gasReads([
     { date: "2026-09-29", read_index: 752, source: "Distributor" },
     { date: "2026-09-29", read_index: 752, source: "Invoice" },
-    { date: "2026-10-27", read_index: 767, source: "Invoice" },
+    { date: "2026/10/27", read_index: 767, source: "Invoice" },
     { date: "bad", read_index: 1 },
     { date: "2026-10-28", read_index: "x" },
   ]);
