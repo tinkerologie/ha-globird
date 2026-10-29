@@ -9,6 +9,7 @@ This project uses Home Assistant's calendar versioning scheme (`YYYY.M.P`, for e
 ### Changed
 
 - Releases ship the integration as `globird.zip`, with a `SHA256SUMS` file and a signed build provenance attestation. `hacs.json` sets `zip_release` and `filename`, so from the next release HACS and the Marketplace install the zip and show the latest release's download count; choosing an older release without the zip can then fail to download. `script/build_release_zip.py` builds the zip reproducibly, pull requests check that two builds match byte for byte, and the release workflow publishes through a draft so it works with immutable releases. The README covers manual installation from the zip and how to verify it ([#31](https://github.com/tinkerologie/ha-globird/issues/31)).
+- Tests fail on deprecated use by the integration: deprecation warnings raised from its modules are errors, Home Assistant's own deprecation reports that name `globird` fail the test that logged them, and a clean-interpreter import of every module runs against the pinned Home Assistant. A weekly, non-blocking HA Next workflow runs the import check, tests and Hassfest against the newest Home Assistant (beta included) and Core `dev`, keeping one `ha-next` issue per channel, and a weekly developer blog watch opens an `ha-dev-blog` issue for each post that deprecates code the integration uses. `script/hassfest` supports Home Assistant 2026.11's packaged validator and Core commit SHAs ([#32](https://github.com/tinkerologie/ha-globird/issues/32)).
 
 ### Fixed
 
