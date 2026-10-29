@@ -6,6 +6,10 @@ This project uses Home Assistant's calendar versioning scheme (`YYYY.M.P`, for e
 
 ## [Unreleased]
 
+### Fixed
+
+- The release workflow no longer fails when it verifies the release before GitHub has created the release attestation. It retries for about a minute, and still fails when release immutability is off ([#35](https://github.com/tinkerologie/ha-globird/issues/35)).
+
 ## [2026.10.6] - 2026-10-29
 
 ### Added
