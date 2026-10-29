@@ -2316,3 +2316,153 @@ def test_card_discovery_metadata_is_additive_and_unrecorded() -> None:
         register.extra_state_attributes["statistic_id"]
         == register._external_statistic_id()
     )
+
+
+_REGISTER_SUMMARY = {
+    "daily": [{"readDate": "2026/10/27", "usage": 3.0}],
+    "export_daily": [{"readDate": "2026/10/27", "usage": 7.0}],
+    "registers": [
+        {
+            "key": "E1-Peak Usage",
+            "slug": "e1_peak_usage",
+            "suffix": "E1",
+            "chargeType": "Peak Usage",
+            "chargeCategoryCode": "USAGE",
+            "direction": "import",
+            "usage_class": "general_import",
+            "register_sensor": True,
+            "daily": [{"readDate": "2026/10/27", "usage": 1.0}],
+        },
+        {
+            "key": "E1-ZeroHero",
+            "slug": "e1_zerohero",
+            "suffix": "E1",
+            "chargeType": "ZeroHero",
+            "chargeCategoryCode": "LOW_USAGE_REWARD_PER_DAY",
+            "direction": "import",
+            "usage_class": "tracking",
+            "register_sensor": False,
+            "daily": [{"readDate": "2026/10/27", "usage": 0.5}],
+        },
+        {
+            "key": "E1-Usage",
+            "slug": "e1_usage",
+            "direction": "import",
+            "usage_class": "general_import",
+            "register_sensor": False,
+            "daily": [],
+        },
+        {
+            "key": "B1-Super Export top up",
+            "slug": "b1_super_export_top_up",
+            "suffix": "B1",
+            "chargeType": "Super Export top up",
+            "direction": "export",
+            "usage_class": "tracking",
+            "register_sensor": False,
+            "daily": [{"readDate": "2026/10/27", "usage": 0.2}],
+        },
+    ],
+}
+
+
+def test_usage_total_lists_register_statistics_and_imports_tracking_rows(
+    monkeypatch: Any,
+) -> None:
+    """Registers with statistics are listed; tracking rows are imported."""
+    uploaded, _queries = _install_recorder_stubs(monkeypatch, [])
+    coordinator = _UsageCoordinator(_REGISTER_SUMMARY)
+    entry = FakeEntry()
+    usage = sensor.GloBirdUsageTotalSensor(coordinator, entry, _POWER_SERVICE)
+    usage.hass = types.SimpleNamespace()
+    peak = sensor.GloBirdUsageRegisterSensor(
+        coordinator, entry, _POWER_SERVICE, _REGISTER_SUMMARY["registers"][0]
+    )
+
+    listed = usage.extra_state_attributes["register_statistics"]
+    assert [r["key"] for r in listed] == ["E1-Peak Usage", "E1-ZeroHero"]
+    # A register sensor and the listing agree on the statistic ID.
+    assert listed[0]["statistic_id"] == peak._external_statistic_id()
+    assert "register_statistics" in usage._unrecorded_attributes
+
+    asyncio.run(usage._async_upload_statistics())
+
+    ids = [meta["statistic_id"] for meta, _rows in uploaded]
+    assert ids == [usage._external_statistic_id(), listed[1]["statistic_id"]]
+    meta, rows = uploaded[1]
+    assert meta["name"] == "Recent E1 ZeroHero"
+    assert rows[-1]["sum"] == 0.5
+
+    export = sensor.GloBirdSolarExportTotalSensor(coordinator, entry, _POWER_SERVICE)
+    export.hass = types.SimpleNamespace()
+    uploaded.clear()
+    asyncio.run(export._async_upload_statistics())
+    assert len(uploaded) == 2
+    assert uploaded[1][0]["name"] == "Recent B1 Super Export top up"
+    assert [r["key"] for r in export.extra_state_attributes["register_statistics"]] == [
+        "B1-Super Export top up"
+    ]
+
+
+def test_category_daily_rows_sum_each_category_per_day() -> None:
+    """Rows of one category and day are summed; categories stay separate."""
+    grouped = sensor._category_daily_rows(
+        [
+            {"date": "2026/10/27", "amount": 1.98, "chargeCategory": "SUPPLY"},
+            {"date": "2026/10/27", "amount": 0.1, "chargeCategory": "USAGE"},
+            {"date": "2026/10/27", "amount": 0.05, "chargeCategory": "USAGE"},
+            {"date": "2026/10/28", "amount": -1.0, "chargeCategory": "ZEROHERO Credit"},
+            {"date": "2026/10/28", "amount": 0.2, "chargeCategory": None},
+            {"amount": 5.0, "chargeCategory": "USAGE"},
+            "not a row",
+        ]
+    )
+    assert grouped == {
+        "supply": {
+            "category": "SUPPLY",
+            "daily": [{"date": "2026/10/27", "amount": 1.98}],
+        },
+        "usage": {
+            "category": "USAGE",
+            "daily": [{"date": "2026/10/27", "amount": 0.15}],
+        },
+        "zerohero_credit": {
+            "category": "ZEROHERO Credit",
+            "daily": [{"date": "2026/10/28", "amount": -1.0}],
+        },
+        "other": {
+            "category": "Other",
+            "daily": [{"date": "2026/10/28", "amount": 0.2}],
+        },
+    }
+    assert sensor._category_daily_rows(None) == {}
+
+
+def test_cost_total_imports_each_charge_category(monkeypatch: Any) -> None:
+    """The cost total imports its sum and one statistic per charge category."""
+    uploaded, _queries = _install_recorder_stubs(monkeypatch, [])
+    coordinator = _UsageCoordinator({})
+    coordinator.data["service_data"]["1"]["cost_summary"] = {
+        "daily_totals": [{"date": "2026/10/27", "amount": 0.98}],
+        "daily": [
+            {"date": "2026/10/27", "amount": 1.98, "chargeCategory": "SUPPLY"},
+            {"date": "2026/10/27", "amount": -1.0, "chargeCategory": "ZEROHERO Credit"},
+        ],
+    }
+    cost = sensor.GloBirdCostTotalSensor(coordinator, FakeEntry(), _POWER_SERVICE)
+    cost.hass = types.SimpleNamespace()
+
+    asyncio.run(cost._async_upload_statistics())
+
+    base = cost._external_statistic_id()
+    assert [meta["statistic_id"] for meta, _rows in uploaded] == [
+        base,
+        f"{base}_supply",
+        f"{base}_zerohero_credit",
+    ]
+    assert uploaded[2][0]["name"].endswith("ZEROHERO Credit")
+    assert uploaded[2][1][-1]["sum"] == -1.0
+    assert cost.extra_state_attributes["category_statistics"] == [
+        {"category": "SUPPLY", "statistic_id": f"{base}_supply"},
+        {"category": "ZEROHERO Credit", "statistic_id": f"{base}_zerohero_credit"},
+    ]
