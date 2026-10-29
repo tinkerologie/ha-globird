@@ -38,9 +38,19 @@ The **GloBird** custom integration connects your [GloBird Energy](https://www.gl
 
 ### Option 2: Manual Installation
 
-1. Copy the `custom_components/globird` directory into your Home Assistant `config/custom_components/` directory.
-2. Restart Home Assistant.
-3. Go to **Settings > Devices & Services > Add Integration** and select **GloBird**.
+1. Download `globird.zip` from the latest release on the [Releases page](https://github.com/tinkerologie/ha-globird/releases).
+2. Create the folder `config/custom_components/globird/` and extract the zip into it. `manifest.json` must end up directly in that folder.
+3. Restart Home Assistant.
+4. Go to **Settings > Devices & Services > Add Integration** and select **GloBird**.
+
+Each release since the first one that ships `globird.zip` carries the zip, a `SHA256SUMS` file and a signed build provenance attestation. The Marketplace and HACS install the same zip. The "Downloaded N times" figure they show is the download count of the latest release's zip, so it starts again with each release. To check that a zip you downloaded is the one the release workflow built:
+
+```bash
+gh attestation verify globird.zip -R tinkerologie/ha-globird
+sha256sum -c SHA256SUMS
+```
+
+Keep `SHA256SUMS` in the same folder as the zip. On macOS, use `shasum -a 256 -c SHA256SUMS`.
 
 ---
 

@@ -23,6 +23,13 @@ addopts = [
 	"--cov-branch",
 	"--cov-report=term-missing",
 ]
+# Deprecation warnings attributed to the integration's own modules are errors.
+# The module field is a regex matched from the start of the warning's module, so
+# it covers every submodule; third-party deprecations keep the default action.
+filterwarnings = [
+	'error::DeprecationWarning:custom_components\.globird(\.|$)',
+	'error::PendingDeprecationWarning:custom_components\.globird(\.|$)',
+]
 
 [tool.ruff]
 target-version = "py314"
