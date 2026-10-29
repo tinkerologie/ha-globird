@@ -6,6 +6,8 @@ This project uses Home Assistant's calendar versioning scheme (`YYYY.M.P`, for e
 
 ## [Unreleased]
 
+## [2026.10.6] - 2026-10-29
+
 ### Changed
 
 - Refresh the dashboard cards for Home Assistant 2026.10 and later. They now use Home Assistant's spacing, type, radius and colour tokens, a segmented service switch, alert-style notices with icons, and visible hover and focus states. The electricity chart shows import above a zero line and solar export below, with a gridded axis and a **Usage (kWh)** / **Cost ($)** switch. Gas services show gas used between the last two reads and a meter-read chart. Cards are suggested in the card picker for their own GloBird sensors, and the editor lists services by name.
