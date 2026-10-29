@@ -205,8 +205,8 @@ Four cards ship with the integration. Restart Home Assistant after updating, the
 | Type | Contents |
 | --- | --- |
 | `custom:globird-usage-cost-card` | Billing-period cost and days, estimated bill, latest complete cost day |
-| `custom:globird-electricity-usage-card` | Separate general import, solar export and controlled load, daily averages, and a daily chart that switches between usage (import above zero, export below) and cost (credits below zero) |
-| `custom:globird-latest-day-card` | Latest available usage and matching cost, or the gas meter reading, gas used between the last two reads and a meter-read chart |
+| `custom:globird-electricity-usage-card` | Separate general import, solar export and controlled load, daily averages, and a daily chart like the GloBird portal's: **Usage (kWh)** stacks each time-of-use register above zero and each feed-in register below it, with ZeroHero and Super Export top-up as markers and daily min/max temperatures; **Cost ($)** stacks supply and usage above zero and ZeroHero, solar and Super Export credits below it |
+| `custom:globird-latest-day-card` | Latest available usage and matching cost, or the gas meter reading, gas used between the last two reads and a meter-read chart with invoice reads and distributor/self reads as separate lines |
 | `custom:globird-account-card` | Account balance, invoice and refresh status |
 
 Choose an existing GloBird service sensor in the editor. The companion sensors are discovered through `globird_sensor_key`, so their names can be customised. Select an account explicitly when more than one is present. Electricity/gas selection appears only when that account has both services. Account cards use the **Dashboard Balance** entity; they do not show account numbers or addresses.
@@ -234,7 +234,7 @@ type: custom:globird-account-card
 entity: sensor.globird_energy_dashboard_balance
 ```
 
-Use your actual entity IDs. For longer electricity history, choose `history_source: statistics` and `history_days: 31` (1–31 is supported). This reads `recorder/statistics_during_period` daily **change** values using the existing `statistic_id`, not cumulative sums. Attribute history is limited to the latest seven rows. The chart and its accessible readings table show dates and missing values explicitly. Per-day averages use only days with readings; cost comparisons use matching complete usage/cost days. Controlled load is never added into general import by the cards.
+Use your actual entity IDs. For longer electricity history, choose `history_source: statistics` and `history_days: 31` (1–31 is supported). The register and charge-category breakdowns come from the integration's long-term statistics, so the full breakdown appears with `history_source: statistics`; recent attribute history shows the time-of-use registers that have their own sensor. Set `show_temperature: false` to hide the temperature lines. This reads `recorder/statistics_during_period` daily **change** values using the existing `statistic_id`, not cumulative sums. Attribute history is limited to the latest seven rows. The chart and its accessible readings table show dates and missing values explicitly. Per-day averages use only days with readings; cost comparisons use matching complete usage/cost days. Controlled load is never added into general import by the cards.
 
 GloBird readings and costs may lag by 24–48 hours. **Yesterday** appears only when the reading date matches yesterday in Home Assistant's configured time zone. Gas values are meter indexes in m³, not daily consumption; missing readings remain **No data**. Zero is retained as a real value. Account balances retain the existing convention: negative means credit, positive means money owing.
 

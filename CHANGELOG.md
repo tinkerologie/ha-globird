@@ -8,6 +8,11 @@ This project uses Home Assistant's calendar versioning scheme (`YYYY.M.P`, for e
 
 ## [2026.10.6] - 2026-10-29
 
+### Added
+
+- Daily long-term statistics for each charge category of the cost total (`globird:…_cost_total_<category>`, such as supply, usage, solar, ZeroHero credit and Super Export top-up) and for the tracking registers that have no sensor of their own (such as `E1-ZeroHero` and `B1-Super Export top up`). The **Recent Usage Total**, **Recent Solar Export Total** and **Recent Cost Total** sensors list them in the recorder-excluded `register_statistics` and `category_statistics` attributes. Existing statistics are unchanged ([#33](https://github.com/tinkerologie/ha-globird/issues/33)).
+- The electricity card's chart now follows the GloBird portal. **Usage (kWh)** stacks each time-of-use register above zero and each feed-in register below it, marks ZeroHero and Super Export top-up without adding them again, and draws daily minimum and maximum temperatures on a second axis (`show_temperature: false` hides them). **Cost ($)** stacks supply and usage above zero and credits below it. The gas chart shows invoice reads and distributor/self reads as separate lines ([#33](https://github.com/tinkerologie/ha-globird/issues/33)).
+
 ### Changed
 
 - Refresh the dashboard cards for Home Assistant 2026.10 and later. They now use Home Assistant's spacing, type, radius and colour tokens, a segmented service switch, alert-style notices with icons, and visible hover and focus states. The electricity chart shows import above a zero line and solar export below, with a gridded axis and a **Usage (kWh)** / **Cost ($)** switch. Gas services show gas used between the last two reads and a meter-read chart. Cards are suggested in the card picker for their own GloBird sensors, and the editor lists services by name ([#33](https://github.com/tinkerologie/ha-globird/issues/33)).

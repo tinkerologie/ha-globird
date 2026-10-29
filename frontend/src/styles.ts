@@ -190,13 +190,14 @@ export const styles = css`
   .chart text { fill: var(--secondary-text-color); font-size: 9px; font-variant-numeric: tabular-nums; }
   .chart .grid { stroke: var(--divider-color); stroke-width: 0.5; stroke-dasharray: 2 2; }
   .chart .zero { stroke: var(--secondary-text-color); stroke-width: 0.75; }
-  .chart .import { fill: var(--chart-import); }
-  .chart .export { fill: var(--chart-export); }
-  .chart .controlled { fill: var(--chart-controlled); }
-  .chart .cost { fill: var(--chart-cost); }
-  .chart .credit { fill: var(--chart-credit); }
-  .chart g:hover rect { opacity: 0.8; }
+  .chart .hit { fill: transparent; }
+  .chart g:hover rect:not(.hit) { opacity: 0.8; }
+  .chart .marker { stroke: var(--card-background-color); stroke-width: 0.75; }
+  .chart .temp { fill: none; stroke-width: 1.5; opacity: 0.9; stroke-linejoin: round; stroke-linecap: round; }
+  .chart .temp.max { stroke: var(--state-climate-heat-color, #ff8100); }
+  .chart .temp.min { stroke: var(--state-climate-cool-color, #2b9af9); }
   .chart .gas-line { fill: none; stroke: var(--chart-gas); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+  .chart .gas-line.dashed { stroke-dasharray: 4 3; }
   .chart .gas-point { fill: var(--card-background-color); stroke: var(--chart-gas); stroke-width: 2; }
   .legend {
     display: flex;
@@ -217,13 +218,10 @@ export const styles = css`
     border-radius: var(--ha-border-radius-sm, 4px);
     background: var(--legend-color);
   }
-  .legend .import { --legend-color: var(--energy-grid-consumption-color, #488fc2); }
-  .legend .export { --legend-color: var(--energy-grid-return-color, #8353d1); }
-  .legend .controlled { --legend-color: var(--energy-non-fossil-color, #0f9d58); }
-  .legend .cost { --legend-color: var(--energy-grid-consumption-color, #488fc2); }
-  .legend .credit { --legend-color: var(--ha-color-fill-success-loud-resting, var(--success-color, #43a047)); }
-  .legend .gas { --legend-color: var(--energy-gas-color, #8e021b); }
-  .legend .gas::before { border-radius: var(--ha-border-radius-circle, 50%); }
+  .legend .line::before { height: 0; border-block-start: 2px solid var(--legend-color); background: none; border-radius: 0; vertical-align: 3px; }
+  .legend .dot::before { width: 8px; height: 8px; border-radius: var(--ha-border-radius-circle, 50%); }
+  .legend .line.dashed::before { border-block-start-style: dashed; }
+  .legend .point::before { background: none; border: 2px solid var(--legend-color); border-radius: var(--ha-border-radius-circle, 50%); width: 8px; height: 8px; }
   .legend .unit-label { margin-inline-start: auto; }
   .legend .unit-label::before { display: none; }
   table { width: 100%; border-collapse: collapse; font-size: var(--ha-font-size-s, 12px); font-variant-numeric: tabular-nums; }

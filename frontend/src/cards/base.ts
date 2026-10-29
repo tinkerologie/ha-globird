@@ -7,6 +7,7 @@ import {
 } from "lit";
 import { type ChartMode, dailyChart, gasChart, gasReads } from "../charts";
 import {
+  breakdown,
   dateLabel,
   format,
   history,
@@ -15,7 +16,9 @@ import {
   number,
   services,
   statisticsRows,
+  temperatures,
   today,
+  withTemperatures,
 } from "../data";
 import { text } from "../strings";
 export type AlertTone = "info" | "warning" | "success";
@@ -114,6 +117,11 @@ export abstract class GloBirdCard extends LitElement {
       !["gas", "electricity"].includes(config.default_service_type)
     )
       throw new Error("Unknown service type.");
+    if (
+      config.show_temperature !== undefined &&
+      typeof config.show_temperature !== "boolean"
+    )
+      throw new Error("Show temperature must be true or false.");
     this.config = { ...config };
     this.selected = undefined;
     this.serviceSelections = {};
@@ -207,6 +215,11 @@ export abstract class GloBirdCard extends LitElement {
       "cost_total",
     ]
       .map((k) => service.entities[k]?.attributes.statistic_id)
+      .concat(
+        Object.values(breakdown(service))
+          .flat()
+          .map((s) => s.statisticId),
+      )
       .filter((v): v is string => typeof v === "string");
     const days = this.config.history_days ?? 7;
     const refreshed = Object.values(hass.states)
@@ -255,11 +268,12 @@ export abstract class GloBirdCard extends LitElement {
     }
   }
   protected get days(): DayRow[] {
-    return (
+    const service = this.service;
+    if (!service || !this.hass) return [];
+    return withTemperatures(
       this.statRows ??
-      (this.service
-        ? history(this.service, Math.min(this.config.history_days ?? 7, 7))
-        : [])
+        history(service, Math.min(this.config.history_days ?? 7, 7)),
+      temperatures(this.hass, service),
     );
   }
   protected metric(
@@ -341,13 +355,17 @@ export abstract class GloBirdCard extends LitElement {
       latest && previous && latest.index >= previous.index
         ? latest.index - previous.index
         : undefined;
-    return html`<div class="metrics">${this.metric("Gas meter reading", e, { note: e ? dateLabel(e.attributes.latest_reading_date, h) : undefined })}${this.metric("Used between reads", reads.length > 1 ? e : undefined, { n: used, unit: "m³", note: previous && latest ? `${dateLabel(previous.day, h)} – ${dateLabel(latest.day, h)}` : "Needs two meter reads" })}</div>${gasChart(reads, h)}<p class="subtitle">Meter index (m³), not daily consumption. Gas meters are read about every three months.</p>`;
+    return html`<div class="metrics">${this.metric("Gas meter reading", e, { note: e ? dateLabel(e.attributes.latest_reading_date, h) : undefined })}${this.metric("Used between reads", reads.length > 1 ? e : undefined, { n: used, unit: "m³", note: previous && latest ? `${dateLabel(previous.day, h)} – ${dateLabel(latest.day, h)}` : "Needs two meter reads" })}</div>${gasChart(e?.attributes.history, h)}<p class="subtitle">Meter index (m³), not daily consumption. Gas meters are read about every three months.</p>`;
   }
   protected chart(rows: DayRow[]) {
     const h = this.hass as Hass;
     if (!rows.some((r) => r.usage !== undefined || r.export !== undefined))
       return html`<p class="subtitle">No daily readings available.</p>`;
     const mode = this.chartMode;
+    const temps =
+      mode === "usage" &&
+      this.config.show_temperature !== false &&
+      rows.some((r) => r.tempMin !== undefined || r.tempMax !== undefined);
     const available = rows.filter(
       (r) => r.usage !== undefined || r.export !== undefined,
     );
@@ -361,7 +379,7 @@ export abstract class GloBirdCard extends LitElement {
         html`<label class="choice"><input type="radio" name="chart-mode" value=${value} .checked=${mode === value} @change=${() => {
           this.chartMode = value;
         }}>${label}</label>`,
-    )}</fieldset>${dailyChart(rows, mode, h)}<details><summary>Daily readings${chevron}</summary><table><caption>${available.length} days with available readings. Missing values are not zero.</caption><thead><tr><th scope="col">Date</th><th scope="col">Import (kWh)</th><th scope="col">Export (kWh)</th><th scope="col">Cost (AUD)</th></tr></thead><tbody>${rows.map((r) => html`<tr><th scope="row">${dateLabel(r.day, h)}</th><td>${r.usage === undefined ? "—" : format(r.usage, h)}</td><td>${r.export === undefined ? "—" : format(r.export, h)}</td><td>${r.incomplete ? "Incomplete" : r.cost === undefined ? "—" : format(r.cost, h, "AUD")}</td></tr>`)}</tbody></table></details>`;
+    )}</fieldset>${dailyChart(rows, mode, h, { ...(this.service ? breakdown(this.service) : {}), temperature: this.config.show_temperature !== false })}<details><summary>Daily readings${chevron}</summary><table><caption>${available.length} days with available readings. Missing values are not zero.</caption><thead><tr><th scope="col">Date</th><th scope="col">Import (kWh)</th><th scope="col">Export (kWh)</th><th scope="col">Cost (AUD)</th>${temps ? html`<th scope="col">Min / max (°C)</th>` : nothing}</tr></thead><tbody>${rows.map((r) => html`<tr><th scope="row">${dateLabel(r.day, h)}</th><td>${r.usage === undefined ? "—" : format(r.usage, h)}</td><td>${r.export === undefined ? "—" : format(r.export, h)}</td><td>${r.incomplete ? "Incomplete" : r.cost === undefined ? "—" : format(r.cost, h, "AUD")}</td>${temps ? html`<td>${r.tempMin === undefined ? "—" : format(r.tempMin, h)} / ${r.tempMax === undefined ? "—" : format(r.tempMax, h)}</td>` : nothing}</tr>`)}</tbody></table></details>`;
   }
   protected abstract content(): TemplateResult;
   protected override render() {

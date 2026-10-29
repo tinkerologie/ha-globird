@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   aligned,
   average,
+  breakdown,
   day,
   format,
   history,
@@ -11,6 +12,8 @@ import {
   number,
   services,
   statisticsRows,
+  temperatures,
+  withTemperatures,
   yesterday,
 } from "../../src/data";
 import { syntheticHass } from "../fixtures";
@@ -172,4 +175,84 @@ it("does not attribute an ambiguous connection failure to a healthy account", ()
   const warnings = notices(h, service).join();
   expect(warnings).toContain("affected account cannot be identified");
   expect(warnings).not.toContain("Showing the last successful data");
+});
+
+it("breaks days into registers and charge categories from statistics", () => {
+  const h = syntheticHass();
+  const s = services(h).find((x) => x.type === "electricity");
+  if (!s?.entities.usage_total || !s.entities.cost_total)
+    throw new Error("fixture missing");
+  s.entities.usage_total.attributes.register_statistics = [
+    {
+      key: "E1-Peak Usage",
+      chargeType: "Peak Usage",
+      usage_class: "general_import",
+      statistic_id: "globird:peak",
+    },
+    {
+      key: "E1-ZeroHero",
+      chargeType: "ZeroHero",
+      usage_class: "tracking",
+      statistic_id: "globird:zh",
+    },
+    { key: 7 },
+  ];
+  s.entities.cost_total.attributes.category_statistics = [
+    { category: "ZEROHERO Credit", statistic_id: "globird:zhc" },
+    { category: "SUPPLY", statistic_id: "globird:supply" },
+    { category: "broken" },
+  ];
+  const { registers, categories } = breakdown(s);
+  expect(registers.map((r) => [r.label, r.direction, r.tracking])).toEqual([
+    ["Peak", "import", false],
+    ["ZeroHero", "import", true],
+  ]);
+  expect(categories.map((c) => [c.label, c.direction])).toEqual([
+    ["Supply", "import"],
+    ["ZeroHero credit", "export"],
+  ]);
+  const start = Date.parse("2030-04-29T14:00Z");
+  const rows = statisticsRows(
+    {
+      "globird:peak": [{ start, change: 1.5 }],
+      "globird:zh": [{ start, change: 0.5 }],
+      "globird:supply": [{ start, change: 1.98 }],
+      "globird:zhc": [{ start, change: -1 }],
+    },
+    s,
+    h,
+  );
+  expect(rows[0]?.registers).toEqual({
+    "E1-Peak Usage": 1.5,
+    "E1-ZeroHero": 0.5,
+  });
+  expect(rows[0]?.categories).toEqual({ SUPPLY: 1.98, "ZEROHERO Credit": -1 });
+});
+
+it("reads daily temperatures from the account's weather summary", () => {
+  const h = syntheticHass();
+  const s = services(h)[0];
+  if (!s) throw new Error("fixture missing");
+  h.states["sensor.weather"] = {
+    entity_id: "sensor.weather",
+    state: "26",
+    attributes: {
+      globird_sensor_key: "weather_summary",
+      account_id: s.accountId,
+      daily: [
+        { dateAsDate: "2030-04-30T00:00:00", obMinTemp: 14.2, obMaxTemp: 26.1 },
+        { dateAsDate: "bad", obMinTemp: 1 },
+      ],
+    },
+  };
+  const temps = temperatures(h, s);
+  expect([...temps.entries()]).toEqual([
+    ["2030-04-30", { min: 14.2, max: 26.1 }],
+  ]);
+  expect(
+    withTemperatures([{ day: "2030-04-30" }, { day: "2030-05-01" }], temps),
+  ).toEqual([
+    { day: "2030-04-30", tempMin: 14.2, tempMax: 26.1 },
+    { day: "2030-05-01" },
+  ]);
 });
