@@ -9,6 +9,7 @@ from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from datetime import time as dt_time
+from functools import partial
 from inspect import isawaitable
 from typing import Any
 
@@ -65,6 +66,13 @@ ZEROHERO_RESULT_CUTOFF = dt_time(hour=21)
 STATISTICS_EPOCH = datetime(2000, 1, 1, tzinfo=UTC)
 # Longest wait for the recorder to commit an import before the next upload.
 RECORDER_COMMIT_TIMEOUT = 60
+# Repairs issue raised while Recorder still holds statistics compiled for the
+# Latest Gas Reading entity before its state class was removed.
+LEGACY_GAS_STATISTICS_TRANSLATION_KEY = "legacy_gas_statistics"
+LEGACY_GAS_STATISTICS_ISSUE_PREFIX = f"{LEGACY_GAS_STATISTICS_TRANSLATION_KEY}_"
+LEGACY_GAS_STATISTICS_URL = (
+    "https://github.com/tinkerologie/ha-globird#legacy-gas-statistics-warning"
+)
 
 
 def _latest_data_status(detail: dict[str, Any]) -> dict[str, Any]:
@@ -350,6 +358,11 @@ def _build_gas_statistics(
         )
 
     return [by_day[day] for day in sorted(by_day)]
+
+
+def _has_legacy_statistics(metadata: Any, entity_id: str | None) -> bool:
+    """Return whether Recorder metadata still holds the entity's statistics."""
+    return bool(entity_id) and isinstance(metadata, dict) and entity_id in metadata
 
 
 def _rebase_legacy_gas_rows(stored_rows: list[StatisticData]) -> list[StatisticData]:
@@ -1277,6 +1290,60 @@ class GloBirdLatestGasReadingSensor(GloBirdServiceBaseSensor):
         """Run the first gas history upload in the background."""
         _create_background_upload(
             self, self._async_upload_gas_statistics_serialised(), "gas statistics"
+        )
+        _create_background_upload(
+            self, self._async_check_legacy_statistics(), "legacy gas statistics check"
+        )
+
+    def _legacy_statistics_issue_id(self) -> str:
+        """Return the Repairs issue ID for this service's legacy statistics."""
+        return LEGACY_GAS_STATISTICS_ISSUE_PREFIX + _safe_statistic_id(
+            self._service_id, "service"
+        )
+
+    async def _async_check_legacy_statistics(self) -> None:
+        """Raise or clear the Repairs issue for legacy sensor statistics.
+
+        Before the state class was removed, Recorder compiled long-term
+        statistics for this entity. Home Assistant then warns that the entity
+        "no longer has a state class". The issue explains that the change is
+        intentional and names the replacement ``globird:`` statistic. Deleting
+        the old statistics stays a user decision.
+        """
+        try:
+            from homeassistant.components.recorder.statistics import get_metadata
+            from homeassistant.helpers import issue_registry as ir
+            from homeassistant.helpers.recorder import get_instance
+
+            metadata = await get_instance(self.hass).async_add_executor_job(
+                partial(get_metadata, self.hass, statistic_ids={self.entity_id})
+            )
+        except Exception as err:
+            _LOGGER.debug(
+                "GloBird legacy gas statistics check skipped for %s: %s",
+                self.entity_id,
+                err,
+            )
+            return
+
+        issue_id = self._legacy_statistics_issue_id()
+        if not _has_legacy_statistics(metadata, self.entity_id):
+            ir.async_delete_issue(self.hass, DOMAIN, issue_id)
+            return
+        ir.async_create_issue(
+            self.hass,
+            DOMAIN,
+            issue_id,
+            is_fixable=False,
+            is_persistent=False,
+            learn_more_url=LEGACY_GAS_STATISTICS_URL,
+            severity=ir.IssueSeverity.WARNING,
+            translation_key=LEGACY_GAS_STATISTICS_TRANSLATION_KEY,
+            translation_placeholders={
+                "entity_id": self.entity_id,
+                "statistic_id": self._external_statistic_id(),
+                "name": str(self._attr_name),
+            },
         )
 
     def _handle_coordinator_update(self) -> None:

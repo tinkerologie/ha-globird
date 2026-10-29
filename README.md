@@ -100,7 +100,7 @@ The daily `globird:` statistics are imported again on every refresh for the last
 ### 3. Gas Consumption & Costs
 - **Gas Usage**:
   - Select the external statistic `globird:<entry>_service_<id>_latest_gas_reading` (`m³`), named *Latest Gas Reading (<mirn>)*. The integration imports every published meter read into it, and its sum starts at 0 at the first read, so only gas used between reads counts.
-  - Do not select the `sensor.glo_bird_energy_latest_gas_reading_<mirn>` entity. It shows the current meter index, has no state class, and does not record long-term statistics: basic gas meters are read about every three months, so the entity cannot produce correct hourly usage. It is `unknown` until the first read is published.
+  - Do not select the `sensor.glo_bird_energy_latest_gas_reading_<mirn>` entity. It shows the current meter index, has no state class, and does not record long-term statistics: basic gas meters are read about every three months, so the entity cannot produce correct hourly usage. It is `unknown` until the first read is published. If Home Assistant warns that this entity "no longer has a state class", see [Legacy gas statistics warning](#legacy-gas-statistics-warning).
 - **Gas Cost**:
   - Select `sensor.glo_bird_energy_billing_period_cost_<mirn>` (*Billing Period Cost*) or `sensor.glo_bird_energy_recent_cost_total_<mirn>` (*Recent Cost Total*).
 
@@ -128,7 +128,7 @@ The daily `globird:` statistics are imported again on every refresh for the last
 - **Recent Solar Export Credit Total** & **Latest Daily Solar Export Credit** (`AUD`, `monetary`, `total`) — Solar feed-in credit totals.
 - **Expected Monthly Cost** (`AUD`, `monetary`) & **Billing Period Days** — Billing cycle cost projection.
 - **ZeroHero Status** (`enum`: `achieved`, `missed`, `pending`, `awaiting_result`, `unknown`) — Daily ZeroHero credit status.
-- **Latest Gas Reading** (`m³`, `gas`, no state class; `unknown` until the first read) & **Latest Gas Reading Date** (`diagnostic`). Gas usage for the Energy dashboard comes from the `globird:` external statistic (see *Gas Consumption & Costs*).
+- **Latest Gas Reading** (`m³`, `gas`, no state class; `unknown` until the first read) & **Latest Gas Reading Date** (`diagnostic`). Gas usage for the Energy dashboard comes from the `globird:` external statistic (see *Gas Consumption & Costs* and [Legacy gas statistics warning](#legacy-gas-statistics-warning)).
 - **Weather Summary** (`°C`, `temperature`, `measurement`) — Daily min/max temperatures for the service postcode.
 
 ---
@@ -162,7 +162,22 @@ automation:
 - **Distributor Meter Data Delay**: Australian smart meter data is typically published 24–48 hours in arrears, and basic gas meter reads are published following scheduled distributor reads.
 - **Accounts in Setup / Transfer (`Switched` / `PendingSwitchResults`)**: When a new GloBird account is still transferring and no meter has been assigned by the distributor yet, `readmeters` and `CostDetail` return empty lists (`[]`). Usage and cost sensors will display `Unknown` (`None`) and `Latest Data Status` will report `no_data` until the first meter read is published.
 - **Captcha Enforcement**: If the GloBird portal triggers hCaptcha/reCaptcha due to repeated failed logins, wait a few minutes and sign in once via a web browser before retrying **Reconfigure**.
+- **Legacy gas statistics warning**: see the section below.
 - **Diagnostics**: You can download a redacted diagnostics JSON bundle from **Settings > Devices & Services > GloBird > Download Diagnostics** when reporting an issue.
+
+### Legacy gas statistics warning
+
+Earlier versions gave the **Latest Gas Reading** entity a state class, so Home Assistant compiled long-term statistics for it. Since `2026.10.3` the entity has no state class, and Home Assistant may show:
+
+> We have generated statistics for 'GloBird Energy Latest Gas Reading (…)' (sensor.…_latest_gas_reading_…) in the past, but it no longer has a state class, therefore, we cannot track long term statistics for it anymore.
+
+This is intentional, not a bug. Gas meters are read about every three months, so the entity cannot produce correct hourly usage. GloBird also raises a **Repairs** issue (*Old long-term statistics for Latest Gas Reading*) while those old statistics exist. To finish the move:
+
+1. Open **Settings > Dashboards > Energy** and edit the gas source.
+2. Select the external statistic **Latest Gas Reading (<mirn>)** (`globird:<entry>_service_<id>_latest_gas_reading`).
+3. Optional: open **Developer tools > Statistics**, find `sensor.…_latest_gas_reading_<mirn>` and delete its statistics. Before deleting, check that the ID starts with `sensor.` (a dot), not `globird:` (a colon). Deleting is permanent unless you have a backup, and it does not affect the `globird:` statistic.
+
+The Repairs issue clears after the old statistics are deleted and Home Assistant restarts or the integration reloads.
 
 ---
 

@@ -8,6 +8,7 @@ This project uses Home Assistant's calendar versioning scheme (`YYYY.M.P`, for e
 
 ### Fixed
 
+- Explain the Home Assistant warning that **Latest Gas Reading** "no longer has a state class". A Repairs issue now appears while statistics from before the state class was removed still exist. It names the `globird:` statistic to use in the Energy dashboard and says that deleting the old statistics is optional and safe. See [Legacy gas statistics warning](README.md#legacy-gas-statistics-warning) ([#30](https://github.com/tinkerologie/ha-globird/issues/30)).
 - Align the Python package version with the `2026.10.5` integration manifest, restoring CI version validation and the frontend resource registration test after the release bump.
 
 ## [2026.10.5] - 2026-10-26
