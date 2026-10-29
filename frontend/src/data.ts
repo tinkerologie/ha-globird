@@ -1,5 +1,12 @@
 import { text } from "./strings";
-import type { DayRow, Entity, Hass, Service, Statistics } from "./types";
+import type {
+  DayRow,
+  Entity,
+  Hass,
+  Series,
+  Service,
+  Statistics,
+} from "./types";
 
 export function number(value: unknown): number | undefined {
   if (typeof value !== "number" && typeof value !== "string") return;
@@ -137,6 +144,10 @@ export function services(hass?: Hass): Service[] {
     };
     if (a.globird_sensor_key !== "register")
       group.entities[a.globird_sensor_key] = entity;
+    else if (typeof a.register_key === "string") {
+      group.registers ??= {};
+      group.registers[a.register_key] = entity;
+    }
     groups.set(key, group);
   }
   return [...groups.values()].filter((s) => Object.keys(s.entities).length > 0);
@@ -204,14 +215,146 @@ export function history(service: Service, days = 7): DayRow[] {
   ]
     .sort()
     .slice(-days)
-    .map((d) => ({
-      day: d,
-      usage: usage.get(d),
-      export: exports.get(d),
-      controlled: controlled.get(d),
-      cost: incomplete.has(d) ? undefined : costs.get(d),
-      incomplete: incomplete.has(d),
-    }));
+    .map((d) => {
+      const registers: Record<string, number> = {};
+      for (const [key, entity] of Object.entries(service.registers ?? {})) {
+        const n = rows(entity, "daily", "readDate", "usage").get(d);
+        if (n !== undefined) registers[key] = n;
+      }
+      return {
+        day: d,
+        usage: usage.get(d),
+        export: exports.get(d),
+        controlled: controlled.get(d),
+        cost: incomplete.has(d) ? undefined : costs.get(d),
+        incomplete: incomplete.has(d),
+        ...(Object.keys(registers).length ? { registers } : {}),
+      };
+    });
+}
+/** The registers and charge categories a service can break its days into. */
+export function breakdown(service: Service): {
+  registers: Series[];
+  categories: Series[];
+} {
+  const registers: Series[] = [];
+  for (const [metric, direction] of [
+    ["usage_total", "import"],
+    ["solar_export_total", "export"],
+  ] as const) {
+    const listed = service.entities[metric]?.attributes.register_statistics;
+    if (!Array.isArray(listed)) continue;
+    for (const raw of listed) {
+      if (!raw || typeof raw !== "object") continue;
+      const r = raw as Record<string, unknown>;
+      if (typeof r.key !== "string") continue;
+      registers.push({
+        key: r.key,
+        label: registerLabel(r),
+        direction,
+        tracking: r.usage_class === "tracking",
+        statisticId:
+          typeof r.statistic_id === "string" ? r.statistic_id : undefined,
+      });
+    }
+  }
+  // Older integration versions list no statistics; use the register sensors.
+  if (!registers.length)
+    for (const [key, entity] of Object.entries(service.registers ?? {}))
+      registers.push({
+        key,
+        label: registerLabel(entity.attributes),
+        direction:
+          entity.attributes.direction === "export" ? "export" : "import",
+        tracking: entity.attributes.usage_class === "tracking",
+      });
+  const categories: Series[] = [];
+  const listed = service.entities.cost_total?.attributes.category_statistics;
+  for (const raw of Array.isArray(listed) ? listed : []) {
+    if (!raw || typeof raw !== "object") continue;
+    const c = raw as Record<string, unknown>;
+    if (typeof c.category !== "string" || typeof c.statistic_id !== "string")
+      continue;
+    categories.push({
+      key: c.category,
+      label: categoryLabel(c.category),
+      direction: CREDIT_CATEGORIES.has(c.category.toUpperCase())
+        ? "export"
+        : "import",
+      statisticId: c.statistic_id,
+    });
+  }
+  // Supply at the base, then usage; credits in a fixed order below zero.
+  const order = [
+    "SUPPLY",
+    "USAGE",
+    "ZEROHERO CREDIT",
+    "SOLAR",
+    "SUPER EXPORT TOP UP",
+  ];
+  const rank = (s: Series) => {
+    const i = order.indexOf(s.key.toUpperCase());
+    return i < 0 ? order.length : i;
+  };
+  categories.sort((a, b) => rank(a) - rank(b));
+  return { registers, categories };
+}
+// Charge categories that are normally credits; any negative amount still
+// draws below zero.
+const CREDIT_CATEGORIES = new Set([
+  "SOLAR",
+  "ZEROHERO CREDIT",
+  "SUPER EXPORT TOP UP",
+]);
+function registerLabel(r: Record<string, unknown>): string {
+  const type = typeof r.chargeType === "string" ? r.chargeType : "";
+  const key = typeof r.key === "string" ? r.key : "";
+  return (type || key)
+    .replace(/^Solar\/Generation Feed in/i, "Solar feed-in")
+    .replace(/ Usage$/i, "");
+}
+function categoryLabel(category: string): string {
+  const known: Record<string, string> = {
+    SUPPLY: "Supply",
+    USAGE: "Usage",
+    SOLAR: "Solar",
+    "ZEROHERO CREDIT": "ZeroHero credit",
+    "SUPER EXPORT TOP UP": "Super Export top-up",
+  };
+  return known[category.toUpperCase()] ?? category;
+}
+/** Daily minimum and maximum temperatures near the service, by day. */
+export function temperatures(
+  hass: Hass,
+  service: Service,
+): Map<string, { min?: number; max?: number }> {
+  const weather =
+    service.entities.weather_summary ??
+    Object.values(hass.states).find(
+      (e) =>
+        e.attributes.globird_sensor_key === "weather_summary" &&
+        String(e.attributes.account_id) === service.accountId,
+    );
+  const result = new Map<string, { min?: number; max?: number }>();
+  const daily = weather?.attributes.daily;
+  if (!Array.isArray(daily) || weather?.state === "unavailable") return result;
+  for (const row of daily) {
+    if (!row || typeof row !== "object") continue;
+    const d = day(row.dateAsDate);
+    if (!d) continue;
+    result.set(d, { min: number(row.obMinTemp), max: number(row.obMaxTemp) });
+  }
+  return result;
+}
+/** Adds the day's temperatures to each row. */
+export function withTemperatures(
+  rows: DayRow[],
+  temps: Map<string, { min?: number; max?: number }>,
+): DayRow[] {
+  return rows.map((r) => {
+    const t = temps.get(r.day);
+    return t ? { ...r, tempMin: t.min, tempMax: t.max } : r;
+  });
 }
 export function aligned(rows: DayRow[]): DayRow[] {
   return rows.filter(
@@ -255,6 +398,22 @@ export function statisticsRows(
       map.set(d, item);
     }
   }
+  const { registers, categories } = breakdown(service);
+  for (const [list, field] of [
+    [registers, "registers"],
+    [categories, "categories"],
+  ] as const)
+    for (const series of list) {
+      if (!series.statisticId) continue;
+      for (const row of result[series.statisticId] ?? []) {
+        const n = number(row.change);
+        if (n === undefined) continue;
+        const d = today(hass, new Date(row.start));
+        const item = map.get(d) ?? { day: d };
+        item[field] = { ...item[field], [series.key]: n };
+        map.set(d, item);
+      }
+    }
   const incompleteRaw = service.entities.cost_total?.attributes.incomplete_days;
   const incomplete = new Set(
     (Array.isArray(incompleteRaw) ? incompleteRaw : []).map(day),
@@ -262,32 +421,45 @@ export function statisticsRows(
   return [...map.values()]
     .sort((a, b) => a.day.localeCompare(b.day))
     .map((r) =>
-      incomplete.has(r.day) ? { ...r, cost: undefined, incomplete: true } : r,
+      incomplete.has(r.day)
+        ? { ...r, cost: undefined, categories: undefined, incomplete: true }
+        : r,
     );
 }
 export function notices(hass: Hass, service: Service): string[] {
-  const result: string[] = [];
+  return noticeItems(hass, service).map((n) => n.text);
+}
+/** Data notices with a tone: pending data is information, the rest are warnings. */
+export function noticeItems(
+  hass: Hass,
+  service: Service,
+): { text: string; tone: "info" | "warning" }[] {
+  const result: { text: string; tone: "info" | "warning" }[] = [];
   const status = service.entities.latest_data_status?.state;
   if (
     status === "waiting_for_cost" ||
     status === "waiting_for_usage" ||
     status === "no_data"
   )
-    result.push(text(status, hass.locale?.language));
+    result.push({ text: text(status, hass.locale?.language), tone: "info" });
   const incomplete = service.entities.cost_total?.attributes.incomplete_days;
   if (
     Array.isArray(incomplete) &&
     incomplete.some((raw) => day(raw) !== undefined)
   )
-    result.push(text("incomplete", hass.locale?.language));
+    result.push({
+      text: text("incomplete", hass.locale?.language),
+      tone: "warning",
+    });
   // Global refresh diagnostics have no account metadata; report failures without exposing error payloads.
   const refreshes = globalEntities(hass, "refresh_status");
   for (const refresh of refreshes)
     if (refresh.state === "error") {
       const raw = refresh.attributes.last_successful_refresh;
-      result.push(
-        `${refreshes.length === 1 ? text("stale", hass.locale?.language) : "A GloBird connection reported a refresh failure. Check integration diagnostics; the affected account cannot be identified here."}${typeof raw === "string" ? ` Connection's last successful refresh: ${timestampLabel(raw, hass)}.` : ""}`,
-      );
+      result.push({
+        tone: "warning",
+        text: `${refreshes.length === 1 ? text("stale", hass.locale?.language) : "A GloBird connection reported a refresh failure. Check integration diagnostics; the affected account cannot be identified here."}${typeof raw === "string" ? ` Connection's last successful refresh: ${timestampLabel(raw, hass)}.` : ""}`,
+      });
     }
   return result;
 }

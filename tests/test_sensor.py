@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import importlib
 import json
+import re
 import sys
 import types
 from datetime import UTC, datetime, timedelta, timezone
@@ -791,6 +792,169 @@ def test_latest_gas_reading_has_no_state_class() -> None:
     assert entity._attr_device_class == sensor.SensorDeviceClass.GAS
     assert entity._attr_native_unit_of_measurement == sensor.UnitOfVolume.CUBIC_METERS
     assert entity.native_value == 790.0
+
+
+def _install_legacy_statistics_stubs(
+    monkeypatch: Any, metadata: dict[str, Any] | Exception
+) -> tuple[list[tuple[Any, ...]], list[dict[str, Any]], list[str]]:
+    """Stub Recorder metadata and the issue registry for the legacy check."""
+    lookups: list[tuple[Any, ...]] = []
+    created: list[dict[str, Any]] = []
+    deleted: list[str] = []
+
+    def get_metadata(hass: Any, *, statistic_ids: set[str]) -> dict[str, Any]:
+        lookups.append((hass, statistic_ids))
+        if isinstance(metadata, Exception):
+            raise metadata
+        return metadata
+
+    class FakeRecorder:
+        async def async_add_executor_job(self, func: Any, *args: Any) -> Any:
+            return func(*args)
+
+    statistics_module = types.ModuleType("homeassistant.components.recorder.statistics")
+    statistics_module.get_metadata = get_metadata
+    helpers_recorder = types.ModuleType("homeassistant.helpers.recorder")
+    helpers_recorder.get_instance = lambda _hass: FakeRecorder()
+    issue_registry = types.ModuleType("homeassistant.helpers.issue_registry")
+    issue_registry.IssueSeverity = types.SimpleNamespace(WARNING="warning")
+
+    def async_create_issue(_hass: Any, domain: str, issue_id: str, **kwargs: Any):
+        created.append({"domain": domain, "issue_id": issue_id, **kwargs})
+
+    def async_delete_issue(_hass: Any, _domain: str, issue_id: str) -> None:
+        deleted.append(issue_id)
+
+    issue_registry.async_create_issue = async_create_issue
+    issue_registry.async_delete_issue = async_delete_issue
+    monkeypatch.setitem(
+        sys.modules, "homeassistant.components.recorder.statistics", statistics_module
+    )
+    monkeypatch.setitem(sys.modules, "homeassistant.helpers.recorder", helpers_recorder)
+    monkeypatch.setitem(
+        sys.modules, "homeassistant.helpers.issue_registry", issue_registry
+    )
+    monkeypatch.setattr(helpers, "issue_registry", issue_registry, raising=False)
+    return lookups, created, deleted
+
+
+_LEGACY_ENTITY_ID = "sensor.globird_energy_latest_gas_reading_5321"
+
+
+def _legacy_check_entity() -> Any:
+    entity = _gas_reading_entity({"latest_reading": 790.0})
+    entity.hass = object()
+    entity.entity_id = _LEGACY_ENTITY_ID
+    return entity
+
+
+def test_has_legacy_statistics_decision() -> None:
+    """Only metadata for the entity itself counts as legacy statistics."""
+    assert sensor._has_legacy_statistics(
+        {_LEGACY_ENTITY_ID: (1, {})}, _LEGACY_ENTITY_ID
+    )
+    assert not sensor._has_legacy_statistics({}, _LEGACY_ENTITY_ID)
+    assert not sensor._has_legacy_statistics(
+        {"globird:entry_1_service_123_latest_gas_reading": (2, {})}, _LEGACY_ENTITY_ID
+    )
+    assert not sensor._has_legacy_statistics({_LEGACY_ENTITY_ID: (1, {})}, None)
+    assert not sensor._has_legacy_statistics(None, _LEGACY_ENTITY_ID)
+
+
+def test_legacy_statistics_raise_repairs_issue(monkeypatch: Any) -> None:
+    """Stored statistics for the entity raise one non-fixable warning issue."""
+    lookups, created, deleted = _install_legacy_statistics_stubs(
+        monkeypatch, {_LEGACY_ENTITY_ID: (7, {"source": "recorder"})}
+    )
+    entity = _legacy_check_entity()
+
+    asyncio.run(entity._async_check_legacy_statistics())
+
+    assert lookups == [(entity.hass, {_LEGACY_ENTITY_ID})]
+    assert deleted == []
+    assert created == [
+        {
+            "domain": sensor.DOMAIN,
+            "issue_id": "legacy_gas_statistics_svc_123",
+            "is_fixable": False,
+            "is_persistent": False,
+            "learn_more_url": sensor.LEGACY_GAS_STATISTICS_URL,
+            "severity": "warning",
+            "translation_key": "legacy_gas_statistics",
+            "translation_placeholders": {
+                "entity_id": _LEGACY_ENTITY_ID,
+                "statistic_id": f"{sensor.DOMAIN}:entry_1_service_123_latest_gas_reading",
+                "name": entity._attr_name,
+            },
+        }
+    ]
+
+
+def test_legacy_statistics_absent_clears_repairs_issue(monkeypatch: Any) -> None:
+    """Once the old statistics are deleted, the issue is removed."""
+    _lookups, created, deleted = _install_legacy_statistics_stubs(monkeypatch, {})
+
+    asyncio.run(_legacy_check_entity()._async_check_legacy_statistics())
+
+    assert created == []
+    assert deleted == ["legacy_gas_statistics_svc_123"]
+
+
+def test_legacy_statistics_lookup_failure_is_ignored(monkeypatch: Any) -> None:
+    """An unreadable Recorder neither raises nor creates or deletes issues."""
+    _lookups, created, deleted = _install_legacy_statistics_stubs(
+        monkeypatch, RuntimeError("database locked")
+    )
+
+    asyncio.run(_legacy_check_entity()._async_check_legacy_statistics())
+
+    assert created == []
+    assert deleted == []
+
+
+def test_legacy_statistics_check_runs_only_after_start() -> None:
+    """The check starts with the first upload, not on coordinator updates."""
+    entity = _legacy_check_entity()
+    started: list[str] = []
+
+    def create_background_task(_hass: Any, coro: Any, name: str) -> None:
+        started.append(name)
+        coro.close()
+
+    entity._config_entry = types.SimpleNamespace(
+        async_create_background_task=create_background_task
+    )
+    entity._async_start_statistics_upload(entity.hass)
+
+    assert started == [
+        f"globird gas statistics upload {_LEGACY_ENTITY_ID}",
+        f"globird legacy gas statistics check upload {_LEGACY_ENTITY_ID}",
+    ]
+
+    scheduled: list[str] = []
+
+    def create_task(coro: Any) -> None:
+        scheduled.append(coro.__qualname__)
+        coro.close()
+
+    entity.hass = types.SimpleNamespace(async_create_task=create_task)
+    entity.async_write_ha_state = lambda: None
+    entity._handle_coordinator_update()
+
+    assert scheduled == [
+        "GloBirdLatestGasReadingSensor._async_upload_gas_statistics_serialised"
+    ]
+
+
+def test_legacy_statistics_translations_match() -> None:
+    """strings.json and en.json describe the Repairs issue identically."""
+    strings = json.loads((INTEGRATION_PATH / "strings.json").read_text())
+    english = json.loads((INTEGRATION_PATH / "translations" / "en.json").read_text())
+    issue = strings["issues"]["legacy_gas_statistics"]
+
+    assert english["issues"]["legacy_gas_statistics"] == issue
+    placeholders = set(re.findall(r"{(\w+)}", issue["title"] + issue["description"]))
+    assert placeholders == {"entity_id", "statistic_id", "name"}
 
 
 def test_latest_gas_reading_sensor_exposes_reading_summary() -> None:
@@ -2044,10 +2208,14 @@ def test_gas_statistics_upload_waits_for_started_not_setup(
     assert background == []
 
     started[0]()
-    upload_coro, name = background[0]
-    assert name == "globird gas statistics upload sensor.globird_gas"
+    assert [name for _coro, name in background] == [
+        "globird gas statistics upload sensor.globird_gas",
+        "globird legacy gas statistics check upload sensor.globird_gas",
+    ]
+    upload_coro, _name = background[0]
     asyncio.run(upload_coro)
     assert events == ["upload"]
+    background[1][0].close()
 
 
 def test_gas_statistics_uploads_run_one_at_a_time(monkeypatch: Any) -> None:
@@ -2148,3 +2316,153 @@ def test_card_discovery_metadata_is_additive_and_unrecorded() -> None:
         register.extra_state_attributes["statistic_id"]
         == register._external_statistic_id()
     )
+
+
+_REGISTER_SUMMARY = {
+    "daily": [{"readDate": "2026/10/27", "usage": 3.0}],
+    "export_daily": [{"readDate": "2026/10/27", "usage": 7.0}],
+    "registers": [
+        {
+            "key": "E1-Peak Usage",
+            "slug": "e1_peak_usage",
+            "suffix": "E1",
+            "chargeType": "Peak Usage",
+            "chargeCategoryCode": "USAGE",
+            "direction": "import",
+            "usage_class": "general_import",
+            "register_sensor": True,
+            "daily": [{"readDate": "2026/10/27", "usage": 1.0}],
+        },
+        {
+            "key": "E1-ZeroHero",
+            "slug": "e1_zerohero",
+            "suffix": "E1",
+            "chargeType": "ZeroHero",
+            "chargeCategoryCode": "LOW_USAGE_REWARD_PER_DAY",
+            "direction": "import",
+            "usage_class": "tracking",
+            "register_sensor": False,
+            "daily": [{"readDate": "2026/10/27", "usage": 0.5}],
+        },
+        {
+            "key": "E1-Usage",
+            "slug": "e1_usage",
+            "direction": "import",
+            "usage_class": "general_import",
+            "register_sensor": False,
+            "daily": [],
+        },
+        {
+            "key": "B1-Super Export top up",
+            "slug": "b1_super_export_top_up",
+            "suffix": "B1",
+            "chargeType": "Super Export top up",
+            "direction": "export",
+            "usage_class": "tracking",
+            "register_sensor": False,
+            "daily": [{"readDate": "2026/10/27", "usage": 0.2}],
+        },
+    ],
+}
+
+
+def test_usage_total_lists_register_statistics_and_imports_tracking_rows(
+    monkeypatch: Any,
+) -> None:
+    """Registers with statistics are listed; tracking rows are imported."""
+    uploaded, _queries = _install_recorder_stubs(monkeypatch, [])
+    coordinator = _UsageCoordinator(_REGISTER_SUMMARY)
+    entry = FakeEntry()
+    usage = sensor.GloBirdUsageTotalSensor(coordinator, entry, _POWER_SERVICE)
+    usage.hass = types.SimpleNamespace()
+    peak = sensor.GloBirdUsageRegisterSensor(
+        coordinator, entry, _POWER_SERVICE, _REGISTER_SUMMARY["registers"][0]
+    )
+
+    listed = usage.extra_state_attributes["register_statistics"]
+    assert [r["key"] for r in listed] == ["E1-Peak Usage", "E1-ZeroHero"]
+    # A register sensor and the listing agree on the statistic ID.
+    assert listed[0]["statistic_id"] == peak._external_statistic_id()
+    assert "register_statistics" in usage._unrecorded_attributes
+
+    asyncio.run(usage._async_upload_statistics())
+
+    ids = [meta["statistic_id"] for meta, _rows in uploaded]
+    assert ids == [usage._external_statistic_id(), listed[1]["statistic_id"]]
+    meta, rows = uploaded[1]
+    assert meta["name"] == "Recent E1 ZeroHero"
+    assert rows[-1]["sum"] == 0.5
+
+    export = sensor.GloBirdSolarExportTotalSensor(coordinator, entry, _POWER_SERVICE)
+    export.hass = types.SimpleNamespace()
+    uploaded.clear()
+    asyncio.run(export._async_upload_statistics())
+    assert len(uploaded) == 2
+    assert uploaded[1][0]["name"] == "Recent B1 Super Export top up"
+    assert [r["key"] for r in export.extra_state_attributes["register_statistics"]] == [
+        "B1-Super Export top up"
+    ]
+
+
+def test_category_daily_rows_sum_each_category_per_day() -> None:
+    """Rows of one category and day are summed; categories stay separate."""
+    grouped = sensor._category_daily_rows(
+        [
+            {"date": "2026/10/27", "amount": 1.98, "chargeCategory": "SUPPLY"},
+            {"date": "2026/10/27", "amount": 0.1, "chargeCategory": "USAGE"},
+            {"date": "2026/10/27", "amount": 0.05, "chargeCategory": "USAGE"},
+            {"date": "2026/10/28", "amount": -1.0, "chargeCategory": "ZEROHERO Credit"},
+            {"date": "2026/10/28", "amount": 0.2, "chargeCategory": None},
+            {"amount": 5.0, "chargeCategory": "USAGE"},
+            "not a row",
+        ]
+    )
+    assert grouped == {
+        "supply": {
+            "category": "SUPPLY",
+            "daily": [{"date": "2026/10/27", "amount": 1.98}],
+        },
+        "usage": {
+            "category": "USAGE",
+            "daily": [{"date": "2026/10/27", "amount": 0.15}],
+        },
+        "zerohero_credit": {
+            "category": "ZEROHERO Credit",
+            "daily": [{"date": "2026/10/28", "amount": -1.0}],
+        },
+        "other": {
+            "category": "Other",
+            "daily": [{"date": "2026/10/28", "amount": 0.2}],
+        },
+    }
+    assert sensor._category_daily_rows(None) == {}
+
+
+def test_cost_total_imports_each_charge_category(monkeypatch: Any) -> None:
+    """The cost total imports its sum and one statistic per charge category."""
+    uploaded, _queries = _install_recorder_stubs(monkeypatch, [])
+    coordinator = _UsageCoordinator({})
+    coordinator.data["service_data"]["1"]["cost_summary"] = {
+        "daily_totals": [{"date": "2026/10/27", "amount": 0.98}],
+        "daily": [
+            {"date": "2026/10/27", "amount": 1.98, "chargeCategory": "SUPPLY"},
+            {"date": "2026/10/27", "amount": -1.0, "chargeCategory": "ZEROHERO Credit"},
+        ],
+    }
+    cost = sensor.GloBirdCostTotalSensor(coordinator, FakeEntry(), _POWER_SERVICE)
+    cost.hass = types.SimpleNamespace()
+
+    asyncio.run(cost._async_upload_statistics())
+
+    base = cost._external_statistic_id()
+    assert [meta["statistic_id"] for meta, _rows in uploaded] == [
+        base,
+        f"{base}_supply",
+        f"{base}_zerohero_credit",
+    ]
+    assert uploaded[2][0]["name"].endswith("ZEROHERO Credit")
+    assert uploaded[2][1][-1]["sum"] == -1.0
+    assert cost.extra_state_attributes["category_statistics"] == [
+        {"category": "SUPPLY", "statistic_id": f"{base}_supply"},
+        {"category": "ZEROHERO Credit", "statistic_id": f"{base}_zerohero_credit"},
+    ]

@@ -38,9 +38,19 @@ The **GloBird** custom integration connects your [GloBird Energy](https://www.gl
 
 ### Option 2: Manual Installation
 
-1. Copy the `custom_components/globird` directory into your Home Assistant `config/custom_components/` directory.
-2. Restart Home Assistant.
-3. Go to **Settings > Devices & Services > Add Integration** and select **GloBird**.
+1. Download `globird.zip` from the latest release on the [Releases page](https://github.com/tinkerologie/ha-globird/releases).
+2. Create the folder `config/custom_components/globird/` and extract the zip into it. `manifest.json` must end up directly in that folder.
+3. Restart Home Assistant.
+4. Go to **Settings > Devices & Services > Add Integration** and select **GloBird**.
+
+Each release since the first one that ships `globird.zip` carries the zip, a `SHA256SUMS` file and a signed build provenance attestation. The Marketplace and HACS install the same zip. The "Downloaded N times" figure they show is the download count of the latest release's zip, so it starts again with each release. To check that a zip you downloaded is the one the release workflow built:
+
+```bash
+gh attestation verify globird.zip -R tinkerologie/ha-globird
+sha256sum -c SHA256SUMS
+```
+
+Keep `SHA256SUMS` in the same folder as the zip. On macOS, use `shasum -a 256 -c SHA256SUMS`.
 
 ---
 
@@ -100,7 +110,7 @@ The daily `globird:` statistics are imported again on every refresh for the last
 ### 3. Gas Consumption & Costs
 - **Gas Usage**:
   - Select the external statistic `globird:<entry>_service_<id>_latest_gas_reading` (`m³`), named *Latest Gas Reading (<mirn>)*. The integration imports every published meter read into it, and its sum starts at 0 at the first read, so only gas used between reads counts.
-  - Do not select the `sensor.glo_bird_energy_latest_gas_reading_<mirn>` entity. It shows the current meter index, has no state class, and does not record long-term statistics: basic gas meters are read about every three months, so the entity cannot produce correct hourly usage. It is `unknown` until the first read is published.
+  - Do not select the `sensor.glo_bird_energy_latest_gas_reading_<mirn>` entity. It shows the current meter index, has no state class, and does not record long-term statistics: basic gas meters are read about every three months, so the entity cannot produce correct hourly usage. It is `unknown` until the first read is published. If Home Assistant warns that this entity "no longer has a state class", see [Legacy gas statistics warning](#legacy-gas-statistics-warning).
 - **Gas Cost**:
   - Select `sensor.glo_bird_energy_billing_period_cost_<mirn>` (*Billing Period Cost*) or `sensor.glo_bird_energy_recent_cost_total_<mirn>` (*Recent Cost Total*).
 
@@ -128,7 +138,7 @@ The daily `globird:` statistics are imported again on every refresh for the last
 - **Recent Solar Export Credit Total** & **Latest Daily Solar Export Credit** (`AUD`, `monetary`, `total`) — Solar feed-in credit totals.
 - **Expected Monthly Cost** (`AUD`, `monetary`) & **Billing Period Days** — Billing cycle cost projection.
 - **ZeroHero Status** (`enum`: `achieved`, `missed`, `pending`, `awaiting_result`, `unknown`) — Daily ZeroHero credit status.
-- **Latest Gas Reading** (`m³`, `gas`, no state class; `unknown` until the first read) & **Latest Gas Reading Date** (`diagnostic`). Gas usage for the Energy dashboard comes from the `globird:` external statistic (see *Gas Consumption & Costs*).
+- **Latest Gas Reading** (`m³`, `gas`, no state class; `unknown` until the first read) & **Latest Gas Reading Date** (`diagnostic`). Gas usage for the Energy dashboard comes from the `globird:` external statistic (see *Gas Consumption & Costs* and [Legacy gas statistics warning](#legacy-gas-statistics-warning)).
 - **Weather Summary** (`°C`, `temperature`, `measurement`) — Daily min/max temperatures for the service postcode.
 
 ---
@@ -162,7 +172,22 @@ automation:
 - **Distributor Meter Data Delay**: Australian smart meter data is typically published 24–48 hours in arrears, and basic gas meter reads are published following scheduled distributor reads.
 - **Accounts in Setup / Transfer (`Switched` / `PendingSwitchResults`)**: When a new GloBird account is still transferring and no meter has been assigned by the distributor yet, `readmeters` and `CostDetail` return empty lists (`[]`). Usage and cost sensors will display `Unknown` (`None`) and `Latest Data Status` will report `no_data` until the first meter read is published.
 - **Captcha Enforcement**: If the GloBird portal triggers hCaptcha/reCaptcha due to repeated failed logins, wait a few minutes and sign in once via a web browser before retrying **Reconfigure**.
+- **Legacy gas statistics warning**: see the section below.
 - **Diagnostics**: You can download a redacted diagnostics JSON bundle from **Settings > Devices & Services > GloBird > Download Diagnostics** when reporting an issue.
+
+### Legacy gas statistics warning
+
+Earlier versions gave the **Latest Gas Reading** entity a state class, so Home Assistant compiled long-term statistics for it. Since `2026.10.3` the entity has no state class, and Home Assistant may show:
+
+> We have generated statistics for 'GloBird Energy Latest Gas Reading (…)' (sensor.…_latest_gas_reading_…) in the past, but it no longer has a state class, therefore, we cannot track long term statistics for it anymore.
+
+This is intentional, not a bug. Gas meters are read about every three months, so the entity cannot produce correct hourly usage. GloBird also raises a **Repairs** issue (*Old long-term statistics for Latest Gas Reading*) while those old statistics exist. To finish the move:
+
+1. Open **Settings > Dashboards > Energy** and edit the gas source.
+2. Select the external statistic **Latest Gas Reading (<mirn>)** (`globird:<entry>_service_<id>_latest_gas_reading`).
+3. Optional: open **Developer tools > Statistics**, find `sensor.…_latest_gas_reading_<mirn>` and delete its statistics. Before deleting, check that the ID starts with `sensor.` (a dot), not `globird:` (a colon). Deleting is permanent unless you have a backup, and it does not affect the `globird:` statistic.
+
+The Repairs issue clears after the old statistics are deleted and Home Assistant restarts or the integration reloads.
 
 ---
 
@@ -175,13 +200,13 @@ automation:
 
 ## Dashboard cards
 
-Four cards ship with the integration. Restart Home Assistant after updating, then refresh the browser. In storage mode, the integration manages one versioned Lovelace module resource automatically; no HACS frontend download or manual resource is needed. Loading through Lovelace ensures Home Assistant has installed its custom-element registry before the cards register. Open **Edit dashboard → Add card** and search for **GloBird**. Each card has a visual editor with a service/entity selector, optional title, default service type, history source and history length.
+Four cards ship with the integration. Restart Home Assistant after updating, then refresh the browser. In storage mode, the integration manages one versioned Lovelace module resource automatically; no HACS frontend download or manual resource is needed. Loading through Lovelace ensures Home Assistant has installed its custom-element registry before the cards register. Open **Edit dashboard → Add card** and search for **GloBird**. On Home Assistant 2026.6 and later, picking a GloBird sensor in the card picker also suggests the matching card. Each card has a visual editor with a service/entity selector, optional title, default service type, history source and history length.
 
 | Type | Contents |
 | --- | --- |
 | `custom:globird-usage-cost-card` | Billing-period cost and days, estimated bill, latest complete cost day |
-| `custom:globird-electricity-usage-card` | Separate general import, solar export and controlled load, daily averages and chart |
-| `custom:globird-latest-day-card` | Latest available usage and matching cost, or an actual gas meter reading |
+| `custom:globird-electricity-usage-card` | Separate general import, solar export and controlled load, daily averages, and a daily chart like the GloBird portal's: **Usage (kWh)** stacks each time-of-use register above zero and each feed-in register below it, with ZeroHero and Super Export top-up as markers and daily min/max temperatures; **Cost ($)** stacks supply and usage above zero and ZeroHero, solar and Super Export credits below it |
+| `custom:globird-latest-day-card` | Latest available usage and matching cost, or the gas meter reading, gas used between the last two reads and a meter-read chart with invoice reads and distributor/self reads as separate lines |
 | `custom:globird-account-card` | Account balance, invoice and refresh status |
 
 Choose an existing GloBird service sensor in the editor. The companion sensors are discovered through `globird_sensor_key`, so their names can be customised. Select an account explicitly when more than one is present. Electricity/gas selection appears only when that account has both services. Account cards use the **Dashboard Balance** entity; they do not show account numbers or addresses.
@@ -209,7 +234,7 @@ type: custom:globird-account-card
 entity: sensor.globird_energy_dashboard_balance
 ```
 
-Use your actual entity IDs. For longer electricity history, choose `history_source: statistics` and `history_days: 31` (1–31 is supported). This reads `recorder/statistics_during_period` daily **change** values using the existing `statistic_id`, not cumulative sums. Attribute history is limited to the latest seven rows. The chart and its accessible readings table show dates and missing values explicitly. Per-day averages use only days with readings; cost comparisons use matching complete usage/cost days. Controlled load is never added into general import by the cards.
+Use your actual entity IDs. For longer electricity history, choose `history_source: statistics` and `history_days: 31` (1–31 is supported). The register and charge-category breakdowns come from the integration's long-term statistics, so the full breakdown appears with `history_source: statistics`; recent attribute history shows the time-of-use registers that have their own sensor. Set `show_temperature: false` to hide the temperature lines. This reads `recorder/statistics_during_period` daily **change** values using the existing `statistic_id`, not cumulative sums. Attribute history is limited to the latest seven rows. The chart and its accessible readings table show dates and missing values explicitly. Per-day averages use only days with readings; cost comparisons use matching complete usage/cost days. Controlled load is never added into general import by the cards.
 
 GloBird readings and costs may lag by 24–48 hours. **Yesterday** appears only when the reading date matches yesterday in Home Assistant's configured time zone. Gas values are meter indexes in m³, not daily consumption; missing readings remain **No data**. Zero is retained as a real value. Account balances retain the existing convention: negative means credit, positive means money owing.
 

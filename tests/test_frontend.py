@@ -179,7 +179,8 @@ def test_bundle_is_in_python_package() -> None:
 def test_multiple_entries_preserve_module_on_unload(
     frontend_hass: Any, monkeypatch: Any
 ) -> None:
-    helpers = importlib.import_module("test_init_module")
+    # The module collected as tests.test_init_module, with its stubs installed.
+    helpers = importlib.import_module("tests.test_init_module")
     integration = helpers.integration_init
     monkeypatch.setattr(integration, "GloBirdCoordinator", helpers.FakeCoordinator)
     frontend_hass.config_entries = helpers.FakeConfigEntries()

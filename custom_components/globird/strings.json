@@ -167,5 +167,11 @@
         "name": "Weather Summary"
       }
     }
+  },
+  "issues": {
+    "legacy_gas_statistics": {
+      "title": "Old long-term statistics for {name}",
+      "description": "Home Assistant still holds long-term statistics for `{entity_id}` and may warn that the entity \"no longer has a state class\". GloBird removed the state class on purpose: gas meters are read about every three months, so the entity cannot produce correct hourly usage.\n\nGas usage is now imported into the external statistic `{statistic_id}`, named *{name}*. In **Settings > Dashboards > Energy**, make sure the gas source is `{statistic_id}`, not `{entity_id}`.\n\nIf you no longer need the old `{entity_id}` statistics, you can delete them in **Developer tools > Statistics**. Deleting them does not affect `{statistic_id}`. This issue clears after the old statistics are deleted and Home Assistant restarts or the integration reloads."
+    }
   }
 }

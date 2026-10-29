@@ -6,8 +6,22 @@ This project uses Home Assistant's calendar versioning scheme (`YYYY.M.P`, for e
 
 ## [Unreleased]
 
+## [2026.10.6] - 2026-10-29
+
+### Added
+
+- Daily long-term statistics for each charge category of the cost total (`globird:…_cost_total_<category>`, such as supply, usage, solar, ZeroHero credit and Super Export top-up) and for the tracking registers that have no sensor of their own (such as `E1-ZeroHero` and `B1-Super Export top up`). The **Recent Usage Total**, **Recent Solar Export Total** and **Recent Cost Total** sensors list them in the recorder-excluded `register_statistics` and `category_statistics` attributes. Existing statistics are unchanged ([#33](https://github.com/tinkerologie/ha-globird/issues/33)).
+- The electricity card's chart now follows the GloBird portal. **Usage (kWh)** stacks each time-of-use register above zero and each feed-in register below it, marks ZeroHero and Super Export top-up without adding them again, and draws daily minimum and maximum temperatures on a second axis (`show_temperature: false` hides them). **Cost ($)** stacks supply and usage above zero and credits below it. The gas chart shows invoice reads and distributor/self reads as separate lines ([#33](https://github.com/tinkerologie/ha-globird/issues/33)).
+
+### Changed
+
+- Refresh the dashboard cards for Home Assistant 2026.10 and later. They now use Home Assistant's spacing, type, radius and colour tokens, a segmented service switch, alert-style notices with icons, and visible hover and focus states. The electricity chart shows import above a zero line and solar export below, with a gridded axis and a **Usage (kWh)** / **Cost ($)** switch. Gas services show gas used between the last two reads and a meter-read chart. Cards are suggested in the card picker for their own GloBird sensors, and the editor lists services by name ([#33](https://github.com/tinkerologie/ha-globird/issues/33)).
+- Releases ship the integration as `globird.zip`, with a `SHA256SUMS` file and a signed build provenance attestation. `hacs.json` sets `zip_release` and `filename`, so from the next release HACS and the Marketplace install the zip and show the latest release's download count; choosing an older release without the zip can then fail to download. `script/build_release_zip.py` builds the zip reproducibly, pull requests check that two builds match byte for byte, and the release workflow publishes through a draft so it works with immutable releases. The README covers manual installation from the zip and how to verify it ([#31](https://github.com/tinkerologie/ha-globird/issues/31)).
+- Tests fail on deprecated use by the integration: deprecation warnings raised from its modules are errors, Home Assistant's own deprecation reports that name `globird` fail the test that logged them, and a clean-interpreter import of every module runs against the pinned Home Assistant. A weekly, non-blocking HA Next workflow runs the import check, tests and Hassfest against the newest Home Assistant (beta included) and Core `dev`, keeping one `ha-next` issue per channel, and a weekly developer blog watch opens an `ha-dev-blog` issue for each post that deprecates code the integration uses. `script/hassfest` supports Home Assistant 2026.11's packaged validator and Core commit SHAs ([#32](https://github.com/tinkerologie/ha-globird/issues/32)).
+
 ### Fixed
 
+- Explain the Home Assistant warning that **Latest Gas Reading** "no longer has a state class". A Repairs issue now appears while statistics from before the state class was removed still exist. It names the `globird:` statistic to use in the Energy dashboard and says that deleting the old statistics is optional and safe. See [Legacy gas statistics warning](README.md#legacy-gas-statistics-warning) ([#30](https://github.com/tinkerologie/ha-globird/issues/30)).
 - Align the Python package version with the `2026.10.5` integration manifest, restoring CI version validation and the frontend resource registration test after the release bump.
 
 ## [2026.10.5] - 2026-10-26

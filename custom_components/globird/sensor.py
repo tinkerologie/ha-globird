@@ -9,6 +9,7 @@ from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from datetime import time as dt_time
+from functools import partial
 from inspect import isawaitable
 from typing import Any
 
@@ -40,6 +41,7 @@ from homeassistant.util.unit_conversion import EnergyConverter, VolumeConverter
 from .client import (
     ATTR_RECENT_ROW_LIMIT,
     USAGE_CLASS_CONTROLLED_LOAD,
+    USAGE_CLASS_TRACKING,
     build_billing_period_projection,
     build_latest_data_status,
     cost_attributes,
@@ -65,6 +67,13 @@ ZEROHERO_RESULT_CUTOFF = dt_time(hour=21)
 STATISTICS_EPOCH = datetime(2000, 1, 1, tzinfo=UTC)
 # Longest wait for the recorder to commit an import before the next upload.
 RECORDER_COMMIT_TIMEOUT = 60
+# Repairs issue raised while Recorder still holds statistics compiled for the
+# Latest Gas Reading entity before its state class was removed.
+LEGACY_GAS_STATISTICS_TRANSLATION_KEY = "legacy_gas_statistics"
+LEGACY_GAS_STATISTICS_ISSUE_PREFIX = f"{LEGACY_GAS_STATISTICS_TRANSLATION_KEY}_"
+LEGACY_GAS_STATISTICS_URL = (
+    "https://github.com/tinkerologie/ha-globird#legacy-gas-statistics-warning"
+)
 
 
 def _latest_data_status(detail: dict[str, Any]) -> dict[str, Any]:
@@ -350,6 +359,40 @@ def _build_gas_statistics(
         )
 
     return [by_day[day] for day in sorted(by_day)]
+
+
+def _has_legacy_statistics(metadata: Any, entity_id: str | None) -> bool:
+    """Return whether Recorder metadata still holds the entity's statistics."""
+    return bool(entity_id) and isinstance(metadata, dict) and entity_id in metadata
+
+
+def _category_daily_rows(daily: Any) -> dict[str, dict[str, Any]]:
+    """Group complete-day cost rows by charge category, summed per day.
+
+    Returns ``{slug: {"category": label, "daily": [{"date", "amount"}]}}`` so
+    each category can be imported as its own daily external statistic.
+    """
+    grouped: dict[str, dict[str, Any]] = {}
+    for row in daily if isinstance(daily, list) else []:
+        if not isinstance(row, dict) or not row.get("date"):
+            continue
+        label = str(row.get("chargeCategory") or "").strip()
+        slug = _safe_statistic_id(label, "other").removeprefix("svc_")
+        entry = grouped.setdefault(slug, {"category": label or "Other", "totals": {}})
+        totals: dict[str, float] = entry["totals"]
+        totals[row["date"]] = totals.get(row["date"], 0.0) + float(
+            row.get("amount") or 0.0
+        )
+    return {
+        slug: {
+            "category": entry["category"],
+            "daily": [
+                {"date": day, "amount": round(amount, 2)}
+                for day, amount in sorted(entry["totals"].items())
+            ],
+        }
+        for slug, entry in grouped.items()
+    }
 
 
 def _rebase_legacy_gas_rows(stored_rows: list[StatisticData]) -> list[StatisticData]:
@@ -749,7 +792,14 @@ class GloBirdBaseSensor(CoordinatorEntity[GloBirdCoordinator], SensorEntity):
     """Base class for GloBird sensors."""
 
     _attr_has_entity_name = True
-    _unrecorded_attributes = frozenset({"globird_sensor_key", "statistic_id"})
+    _unrecorded_attributes = frozenset(
+        {
+            "globird_sensor_key",
+            "statistic_id",
+            "register_statistics",
+            "category_statistics",
+        }
+    )
 
     def __init__(
         self, coordinator: GloBirdCoordinator, config_entry: ConfigEntry
@@ -919,6 +969,65 @@ class GloBirdServiceBaseSensor(GloBirdBaseSensor):
         )
         return f"{DOMAIN}:{suffix}"
 
+    def _register_statistic_id(self, register: dict[str, Any]) -> str:
+        """Return the statistic ID of a register, as its register sensor uses."""
+        unique_id = _register_unique_id(
+            self._config_entry, self._service_id, str(register.get("slug") or "")
+        )
+        return f"{DOMAIN}:{_safe_statistic_id(unique_id, self._service_id)}"
+
+    def _register_statistics(self, direction: str) -> list[dict[str, Any]]:
+        """Return the registers of one direction that have daily statistics.
+
+        Registers with their own sensor import through it; tracking registers,
+        which re-report energy another register already counts, are imported by
+        the direction's total sensor so cards can show them without adding them.
+        """
+        summary = self._service_detail().get("usage_summary") or {}
+        result: list[dict[str, Any]] = []
+        for register in summary.get("registers") or []:
+            if not isinstance(register, dict) or register.get("direction") != direction:
+                continue
+            tracking = register.get("usage_class") == USAGE_CLASS_TRACKING
+            if not (tracking or register.get("register_sensor")):
+                continue
+            result.append(
+                {
+                    "key": register.get("key"),
+                    "chargeType": register.get("chargeType"),
+                    "chargeCategoryCode": register.get("chargeCategoryCode"),
+                    "usage_class": register.get("usage_class"),
+                    "time_periods": register.get("time_periods") or [],
+                    "statistic_id": self._register_statistic_id(register),
+                }
+            )
+        return result
+
+    async def _async_upload_tracking_registers(self, direction: str) -> None:
+        """Import daily statistics for the tracking registers of a direction."""
+        summary = self._service_detail().get("usage_summary") or {}
+        for register in summary.get("registers") or []:
+            if (
+                not isinstance(register, dict)
+                or register.get("direction") != direction
+                or register.get("usage_class") != USAGE_CLASS_TRACKING
+                or register.get("register_sensor")
+            ):
+                continue
+            label = " ".join(
+                str(part).strip()
+                for part in (register.get("suffix"), register.get("chargeType"))
+                if part and str(part).strip()
+            )
+            await self._async_upload_daily_external_statistics(
+                register.get("daily") or [],
+                date_key="readDate",
+                value_key="usage",
+                unit_class=EnergyConverter.UNIT_CLASS,
+                statistic_id=self._register_statistic_id(register),
+                name=f"Recent {label or register.get('slug')}",
+            )
+
     async def _async_stored_rows_before(
         self, statistic_id: str, before: datetime, types: set[str]
     ) -> list[StatisticData]:
@@ -968,8 +1077,14 @@ class GloBirdServiceBaseSensor(GloBirdBaseSensor):
         date_key: str,
         value_key: str,
         unit_class: str | None,
+        statistic_id: str | None = None,
+        name: str | None = None,
     ) -> None:
-        """Upload daily cumulative external statistics for the Home Assistant Energy Dashboard."""
+        """Upload daily cumulative external statistics for the Home Assistant Energy Dashboard.
+
+        ``statistic_id`` and ``name`` default to this sensor's own statistic;
+        sensors pass them to import breakdown series, such as one per register.
+        """
         if not isinstance(daily_rows, list) or not daily_rows:
             return
 
@@ -980,7 +1095,7 @@ class GloBirdServiceBaseSensor(GloBirdBaseSensor):
         except ImportError:
             return
 
-        statistic_id = self._external_statistic_id()
+        statistic_id = statistic_id or self._external_statistic_id()
         tzinfo = dt_util.now().tzinfo or UTC
         statistics = _build_daily_cumulative_statistics(
             daily_rows,
@@ -1018,7 +1133,7 @@ class GloBirdServiceBaseSensor(GloBirdBaseSensor):
             has_mean=False,
             mean_type=StatisticMeanType.NONE,
             has_sum=True,
-            name=self._attr_name,
+            name=name or self._attr_name,
             source=DOMAIN,
             statistic_id=statistic_id,
             unit_class=unit_class,
@@ -1278,6 +1393,60 @@ class GloBirdLatestGasReadingSensor(GloBirdServiceBaseSensor):
         _create_background_upload(
             self, self._async_upload_gas_statistics_serialised(), "gas statistics"
         )
+        _create_background_upload(
+            self, self._async_check_legacy_statistics(), "legacy gas statistics check"
+        )
+
+    def _legacy_statistics_issue_id(self) -> str:
+        """Return the Repairs issue ID for this service's legacy statistics."""
+        return LEGACY_GAS_STATISTICS_ISSUE_PREFIX + _safe_statistic_id(
+            self._service_id, "service"
+        )
+
+    async def _async_check_legacy_statistics(self) -> None:
+        """Raise or clear the Repairs issue for legacy sensor statistics.
+
+        Before the state class was removed, Recorder compiled long-term
+        statistics for this entity. Home Assistant then warns that the entity
+        "no longer has a state class". The issue explains that the change is
+        intentional and names the replacement ``globird:`` statistic. Deleting
+        the old statistics stays a user decision.
+        """
+        try:
+            from homeassistant.components.recorder.statistics import get_metadata
+            from homeassistant.helpers import issue_registry as ir
+            from homeassistant.helpers.recorder import get_instance
+
+            metadata = await get_instance(self.hass).async_add_executor_job(
+                partial(get_metadata, self.hass, statistic_ids={self.entity_id})
+            )
+        except Exception as err:
+            _LOGGER.debug(
+                "GloBird legacy gas statistics check skipped for %s: %s",
+                self.entity_id,
+                err,
+            )
+            return
+
+        issue_id = self._legacy_statistics_issue_id()
+        if not _has_legacy_statistics(metadata, self.entity_id):
+            ir.async_delete_issue(self.hass, DOMAIN, issue_id)
+            return
+        ir.async_create_issue(
+            self.hass,
+            DOMAIN,
+            issue_id,
+            is_fixable=False,
+            is_persistent=False,
+            learn_more_url=LEGACY_GAS_STATISTICS_URL,
+            severity=ir.IssueSeverity.WARNING,
+            translation_key=LEGACY_GAS_STATISTICS_TRANSLATION_KEY,
+            translation_placeholders={
+                "entity_id": self.entity_id,
+                "statistic_id": self._external_statistic_id(),
+                "name": str(self._attr_name),
+            },
+        )
 
     def _handle_coordinator_update(self) -> None:
         """Refresh the entity and import any newly published gas reads."""
@@ -1467,6 +1636,7 @@ class GloBirdUsageTotalSensor(GloBirdDailyStatisticsSensor):
             value_key="usage",
             unit_class=EnergyConverter.UNIT_CLASS,
         )
+        await self._async_upload_tracking_registers("import")
 
     @property
     def native_value(self) -> Any:
@@ -1481,6 +1651,7 @@ class GloBirdUsageTotalSensor(GloBirdDailyStatisticsSensor):
         attrs = self._service_attrs()
         summary = self._service_detail().get("usage_summary") or {}
         attrs.update(usage_attributes(summary, direction="import"))
+        attrs["register_statistics"] = self._register_statistics("import")
         return attrs
 
 
@@ -1541,6 +1712,7 @@ class GloBirdSolarExportTotalSensor(GloBirdDailyStatisticsSensor):
             value_key="usage",
             unit_class=EnergyConverter.UNIT_CLASS,
         )
+        await self._async_upload_tracking_registers("export")
 
     @property
     def native_value(self) -> Any:
@@ -1555,6 +1727,7 @@ class GloBirdSolarExportTotalSensor(GloBirdDailyStatisticsSensor):
         attrs = self._service_attrs()
         summary = self._service_detail().get("usage_summary") or {}
         attrs.update(usage_attributes(summary, direction="export"))
+        attrs["register_statistics"] = self._register_statistics("export")
         return attrs
 
 
@@ -1773,7 +1946,7 @@ class GloBirdCostTotalSensor(GloBirdDailyStatisticsSensor):
     sensor_state_class = SensorStateClass.TOTAL
 
     async def _async_upload_statistics(self) -> None:
-        """Upload daily cost statistics."""
+        """Upload daily cost statistics, in total and per charge category."""
         summary = self._service_detail().get("cost_summary") or {}
         await self._async_upload_daily_external_statistics(
             summary.get("daily_totals") or [],
@@ -1781,6 +1954,30 @@ class GloBirdCostTotalSensor(GloBirdDailyStatisticsSensor):
             value_key="amount",
             unit_class=None,
         )
+        for slug, entry in _category_daily_rows(summary.get("daily")).items():
+            await self._async_upload_daily_external_statistics(
+                entry["daily"],
+                date_key="date",
+                value_key="amount",
+                unit_class=None,
+                statistic_id=self._category_statistic_id(slug),
+                name=f"{self._attr_name} {entry['category']}",
+            )
+
+    def _category_statistic_id(self, slug: str) -> str:
+        """Return the statistic ID of one charge category's daily cost."""
+        return f"{self._external_statistic_id()}_{slug}"
+
+    def _category_statistics(self) -> list[dict[str, Any]]:
+        """Return each charge category with the statistic ID of its cost."""
+        summary = self._service_detail().get("cost_summary") or {}
+        return [
+            {
+                "category": entry["category"],
+                "statistic_id": self._category_statistic_id(slug),
+            }
+            for slug, entry in _category_daily_rows(summary.get("daily")).items()
+        ]
 
     @property
     def native_value(self) -> Any:
@@ -1795,6 +1992,7 @@ class GloBirdCostTotalSensor(GloBirdDailyStatisticsSensor):
         attrs = self._service_attrs()
         summary = self._service_detail().get("cost_summary") or {}
         attrs.update(cost_attributes(summary))
+        attrs["category_statistics"] = self._category_statistics()
         return attrs
 
 
