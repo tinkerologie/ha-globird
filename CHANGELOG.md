@@ -6,6 +6,10 @@ This project uses Home Assistant's calendar versioning scheme (`YYYY.M.P`, for e
 
 ## [Unreleased]
 
+### Changed
+
+- Releases ship the integration as `globird.zip`, with a `SHA256SUMS` file and a signed build provenance attestation. `hacs.json` sets `zip_release` and `filename`, so from the next release HACS and the Marketplace install the zip and show the latest release's download count; choosing an older release without the zip can then fail to download. `script/build_release_zip.py` builds the zip reproducibly, pull requests check that two builds match byte for byte, and the release workflow publishes through a draft so it works with immutable releases. The README covers manual installation from the zip and how to verify it ([#31](https://github.com/tinkerologie/ha-globird/issues/31)).
+
 ### Fixed
 
 - Align the Python package version with the `2026.10.5` integration manifest, restoring CI version validation and the frontend resource registration test after the release bump.
