@@ -332,6 +332,10 @@ def test_diagnostics_keeps_inventory_when_cached_values_are_malformed() -> None:
     diagnostics_data = diagnostics._diagnostics_data(
         {
             "last_update": "private timestamp",
+            "services": [
+                {"accountServiceId": "private pending service", "status": "Pending"},
+                "private malformed service",
+            ],
             "service_data": {
                 "private service": {
                     "usage": {
@@ -340,12 +344,34 @@ def test_diagnostics_keeps_inventory_when_cached_values_are_malformed() -> None:
                                 "suffix": "E2",
                                 "chargeType": "Controlled Load",
                                 "usage": True,
+                                "readDate": "private@date",
                             },
                             {
                                 "suffix": "E2",
                                 "chargeType": "Controlled Load",
                                 "usage": "private usage",
                             },
+                            {
+                                "suffix": "E2",
+                                "chargeType": "Controlled Load",
+                                "usage": 10**1000,
+                            },
+                            {
+                                "suffix": "E3",
+                                "chargeType": "private@label",
+                                "direction": 11223344,
+                            },
+                            "private malformed usage row",
+                        ]
+                    },
+                    "usage_summary": {
+                        "latest_intervals": [
+                            "private interval",
+                            {},
+                            True,
+                            float("inf"),
+                            0.5,
+                            1,
                         ]
                     },
                     "cost": {
@@ -367,9 +393,26 @@ def test_diagnostics_keeps_inventory_when_cached_values_are_malformed() -> None:
         }
     )
     assert "private" not in json.dumps(diagnostics_data)
-    service = diagnostics_data["service_data"]["service_1"]
-    assert service["usage_register_inventory"][0]["total_usage"] == 0.0
-    assert service["usage_register_inventory"][0]["first_read_date"] is None
+    assert diagnostics_data["services"] == [
+        {"service_ref": "service_1", "status": "Pending"},
+        {"service_ref": "service_2"},
+    ]
+    assert set(diagnostics_data["service_data"]) == {"service_2"}
+    service = diagnostics_data["service_data"]["service_2"]
+    assert service["usage_summary"]["latest_intervals"] == [
+        None,
+        None,
+        None,
+        None,
+        0.5,
+        1,
+    ]
+    controlled, invalid_labels = service["usage_register_inventory"]
+    assert controlled["row_count"] == 3
+    assert controlled["total_usage"] == 0.0
+    assert controlled["first_read_date"] is None
+    assert invalid_labels["chargeType"] == "**REDACTED**"
+    assert invalid_labels["direction"] == "**REDACTED**"
     assert service["cost_category_inventory"][0]["row_count"] == 2
     assert service["cost_category_inventory"][0]["total_amount"] == 1.25
     assert service["cost_category_inventory"][0]["total_quantity"] == 3.0
