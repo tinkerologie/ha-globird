@@ -6,6 +6,10 @@ This project uses Home Assistant's calendar versioning scheme (`YYYY.M.P`, for e
 
 ## [Unreleased]
 
+### Fixed
+
+- Codecov uploads on same-repository Dependabot pull requests now authenticate with OIDC ([#47](https://github.com/tinkerologie/ha-globird/issues/47)).
+
 ## [2026.11.0] - 2026-11-11
 
 ### Changed

@@ -25,7 +25,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
 
       - name: Check formatting
         run: uvx ruff@0.17.0 format --check --extend-exclude custom_components/globird/api .
@@ -46,7 +46,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
 
       - name: Run tests and generate coverage
         run: bash script/test --cov-report=xml
@@ -56,7 +56,8 @@ jobs:
         with:
           files: ./coverage.xml
           disable_search: true
-          use_oidc: ${{ github.event_name != 'pull_request' || (!github.event.pull_request.head.repo.fork && github.event.pull_request.user.login != 'dependabot[bot]') }}
+          # OIDC covers same-repository runs including Dependabot. Fork uploads are tokenless.
+          use_oidc: ${{ github.event_name != 'pull_request' || !github.event.pull_request.head.repo.fork }}
           fail_ci_if_error: true
 
   coverage-baseline:
@@ -73,7 +74,7 @@ jobs:
           ref: ${{ github.event.pull_request.base.sha }}
           persist-credentials: false
       - name: Set up uv
-        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
       - name: Measure the actual base coverage
         run: bash script/test --cov-report=xml
       - name: Upload the base commit coverage
@@ -84,7 +85,8 @@ jobs:
           override_commit: ${{ github.event.pull_request.base.sha }}
           override_branch: ${{ github.event.pull_request.base.ref }}
           override_pr: '0'
-          use_oidc: ${{ !github.event.pull_request.head.repo.fork && github.event.pull_request.user.login != 'dependabot[bot]' }}
+          # OIDC covers same-repository runs including Dependabot. Fork uploads are tokenless.
+          use_oidc: ${{ !github.event.pull_request.head.repo.fork }}
           fail_ci_if_error: true
 
   frontend:
