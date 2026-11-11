@@ -115,22 +115,30 @@ jobs:
           CHANNEL: ${{ matrix.channel }}
           HA_VERSION: ${{ steps.resolve.outputs.ha_version }}
           REQUIREMENT: ${{ steps.resolve.outputs.requirement }}
+          CORE_REF: ${{ steps.resolve.outputs.hassfest_ref }}
         run: |
-          # pytest-homeassistant-custom-component pins one Home Assistant version
-          # and often lags a beta by days; it never matches Core dev. Without a
-          # match, run only the import smoke test.
           mapfile -t integration_requirements < <(jq -r '.requirements[]' custom_components/globird/manifest.json)
-          # The same test dependencies as script/test, without its version pins.
-          if [[ "$CHANNEL" == release ]] && uv pip install . "$REQUIREMENT" "${integration_requirements[@]}" \
-            pytest-homeassistant-custom-component "PyTurboJPEG>=2.2.0" "av>=16.1.0" "ha-ffmpeg>=3.2.2" \
-            "segno==1.6.6" "pytest>=8.0.0" "pytest-asyncio>=0.23.0" "pytest-cov>=4.0.0" "pytest-timeout>=2.0.0"; then
-            echo "harness=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "::notice::No pytest-homeassistant-custom-component release installs with Home Assistant $HA_VERSION; running the import smoke test only"
-            echo "harness=false" >> "$GITHUB_OUTPUT"
-            uv pip install . "$REQUIREMENT" "${integration_requirements[@]}"
-          fi
+          uv pip install . "$REQUIREMENT" "${integration_requirements[@]}"
           python -c "from homeassistant.const import __version__; print('Installed Home Assistant', __version__)"
+
+          if [[ "$CHANNEL" == dev ]]; then
+            plugin="pytest-homeassistant @ https://github.com/home-assistant/core/archive/$CORE_REF.tar.gz#subdirectory=packages/pytest-homeassistant"
+          else
+            IFS=. read -r major minor _ <<< "$HA_VERSION"
+            if (( major < 2026 || (major == 2026 && minor < 11) )); then
+              echo "::notice::Home Assistant $HA_VERSION predates the official pytest harness"
+              echo "harness=unsupported" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            plugin="pytest-homeassistant==$HA_VERSION"
+          fi
+
+          if uv pip install "$REQUIREMENT" "$plugin" "pytest-cov>=4.0.0" "pytest-timeout>=2.0.0"; then
+            echo "harness=installed" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::Could not install the official pytest harness for Home Assistant $HA_VERSION; pytest skipped"
+            echo "harness=unavailable" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Import every module and check for deprecations
         id: smoke
@@ -139,7 +147,7 @@ jobs:
 
       - name: Run tests with deprecation checks
         id: tests
-        if: steps.install.outputs.harness == 'true'
+        if: steps.install.outputs.harness == 'installed'
         continue-on-error: true
         run: pytest --no-cov -q
 
@@ -175,14 +183,15 @@ jobs:
               status=failure
             fi
           done
-          if [[ "$HARNESS" == true && "$TESTS" != success ]]; then
+          if [[ "$HARNESS" == installed && "$TESTS" != success ]]; then
             status=failure
           fi
-          if [[ "$HARNESS" == true ]]; then
-            tests="$TESTS"
-          else
-            tests="skipped: no pytest-homeassistant-custom-component for this version"
-          fi
+          case "$HARNESS" in
+            installed) tests="$TESTS" ;;
+            unsupported) tests="skipped: Home Assistant predates pytest-homeassistant" ;;
+            unavailable) tests="skipped: matching pytest-homeassistant could not be installed" ;;
+            *) tests="not run" ;;
+          esac
           {
             echo "## Home Assistant ${HA_VERSION:-unresolved}"
             echo
