@@ -1,6 +1,6 @@
 [project]
 name = "ha-globird"
-version = "2026.10.6"
+version = "2026.11.0"
 description = "GloBird Home Assistant custom integration"
 readme = "README.md"
 requires-python = ">=3.14"
@@ -19,16 +19,21 @@ pythonpath = ["."]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 addopts = [
+	# Prevent respx's pytest plugin from importing httpx before Core aliases it.
+	"-p", "no:respx",
 	"--cov=custom_components.globird",
 	"--cov-branch",
 	"--cov-report=term-missing",
 ]
 # Deprecation warnings attributed to the integration's own modules are errors.
 # The module field is a regex matched from the start of the warning's module, so
-# it covers every submodule; third-party deprecations keep the default action.
+# it covers every submodule. Ignore only these known upstream import warnings
+# from the official test harness's Home Assistant and aiogithubapi dependencies.
 filterwarnings = [
 	'error::DeprecationWarning:custom_components\.globird(\.|$)',
 	'error::PendingDeprecationWarning:custom_components\.globird(\.|$)',
+	'ignore:Inheritance class HomeAssistantApplication from web\.Application is discouraged:DeprecationWarning:homeassistant\.components\.http\.server$',
+	'ignore:.*asyncio\.iscoroutinefunction.*deprecated:DeprecationWarning:backoff\.(_async|_decorator)$',
 ]
 
 [tool.ruff]
@@ -42,6 +47,10 @@ ignore = ["E501", "S101", "TRY003", "TRY300"]
 [tool.ruff.lint.per-file-ignores]
 "custom_components/globird/const.py" = ["S105"]
 "tests/*" = ["RUF012", "DTZ011", "PYI034", "S101", "S105", "S106", "TRY003"]
+
+[tool.ruff.per-file-target-version]
+# HACS installs these files on Core 2025.9, which still runs Python 3.13.
+"custom_components/globird/**/*.py" = "py313"
 
 [tool.bandit]
 exclude_dirs = ["tests", ".venv", ".local", "build"]

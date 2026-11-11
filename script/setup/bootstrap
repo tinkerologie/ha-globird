@@ -133,9 +133,8 @@ log_info "Using pyproject.toml extras: dev"
 # the custom_components namespace package. A setuptools editable install adds a
 # __editable__ path hook that breaks discovery, so install a regular local wheel.
 #
-# --upgrade resolves the dev extras together with the newest Home Assistant
-# release (and matching pytest-homeassistant-custom-component), so the dev
-# environment always tracks the latest version instead of falling behind.
+# The dev environment tracks the newest Home Assistant release. Use script/test
+# for the isolated, pinned Home Assistant and pytest-homeassistant environment.
 uv pip install --upgrade ".[dev]" homeassistant
 
 # Only install pre-commit hooks in local development, not in CI

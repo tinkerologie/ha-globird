@@ -12,6 +12,8 @@ from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 COMPONENT_PATH = Path(__file__).parents[1] / "custom_components"
 INTEGRATION_PATH = COMPONENT_PATH / "globird"
 GAS_FIXTURE_PATH = Path(__file__).parent / "fixtures" / "globird_gas_responses.json"
@@ -32,6 +34,7 @@ core = types.ModuleType("homeassistant.core")
 recorder = types.ModuleType("homeassistant.components.recorder")
 recorder_models = types.ModuleType("homeassistant.components.recorder.models")
 helpers = types.ModuleType("homeassistant.helpers")
+device_registry = types.ModuleType("homeassistant.helpers.device_registry")
 entity_platform = types.ModuleType("homeassistant.helpers.entity_platform")
 event = types.ModuleType("homeassistant.helpers.event")
 start = types.ModuleType("homeassistant.helpers.start")
@@ -156,6 +159,7 @@ const.UnitOfTemperature = types.SimpleNamespace(CELSIUS="C")
 const.UnitOfVolume = types.SimpleNamespace(CUBIC_METERS="m3")
 core.HomeAssistant = object
 core.callback = lambda func: func
+device_registry.DeviceInfo = dict
 entity_platform.AddEntitiesCallback = object
 event.async_track_point_in_time = async_track_point_in_time
 start.async_at_started = async_at_started
@@ -177,6 +181,7 @@ util.unit_conversion = unit_conversion
 components.sensor = sensor_component
 components.recorder = recorder
 helpers.entity_platform = entity_platform
+helpers.device_registry = device_registry
 helpers.event = event
 helpers.start = start
 helpers.storage = storage
@@ -197,6 +202,7 @@ sys.modules["homeassistant.config_entries"] = config_entries
 sys.modules["homeassistant.const"] = const
 sys.modules["homeassistant.core"] = core
 sys.modules["homeassistant.helpers"] = helpers
+sys.modules["homeassistant.helpers.device_registry"] = device_registry
 sys.modules["homeassistant.helpers.entity_platform"] = entity_platform
 sys.modules["homeassistant.helpers.event"] = event
 sys.modules["homeassistant.helpers.start"] = start
@@ -795,7 +801,10 @@ def test_latest_gas_reading_has_no_state_class() -> None:
 
 
 def _install_legacy_statistics_stubs(
-    monkeypatch: Any, metadata: dict[str, Any] | Exception
+    monkeypatch: Any,
+    metadata: dict[str, Any] | Exception,
+    *,
+    supports_entry: bool = False,
 ) -> tuple[list[tuple[Any, ...]], list[dict[str, Any]], list[str]]:
     """Stub Recorder metadata and the issue registry for the legacy check."""
     lookups: list[tuple[Any, ...]] = []
@@ -822,10 +831,19 @@ def _install_legacy_statistics_stubs(
     def async_create_issue(_hass: Any, domain: str, issue_id: str, **kwargs: Any):
         created.append({"domain": domain, "issue_id": issue_id, **kwargs})
 
+    def async_create_linked_issue(
+        hass: Any, domain: str, issue_id: str, *, config_entry_id: str, **kwargs: Any
+    ) -> None:
+        async_create_issue(
+            hass, domain, issue_id, config_entry_id=config_entry_id, **kwargs
+        )
+
     def async_delete_issue(_hass: Any, _domain: str, issue_id: str) -> None:
         deleted.append(issue_id)
 
-    issue_registry.async_create_issue = async_create_issue
+    issue_registry.async_create_issue = (
+        async_create_linked_issue if supports_entry else async_create_issue
+    )
     issue_registry.async_delete_issue = async_delete_issue
     monkeypatch.setitem(
         sys.modules, "homeassistant.components.recorder.statistics", statistics_module
@@ -861,10 +879,15 @@ def test_has_legacy_statistics_decision() -> None:
     assert not sensor._has_legacy_statistics(None, _LEGACY_ENTITY_ID)
 
 
-def test_legacy_statistics_raise_repairs_issue(monkeypatch: Any) -> None:
+@pytest.mark.parametrize("supports_entry", [False, True])
+def test_legacy_statistics_raise_repairs_issue(
+    monkeypatch: Any, supports_entry: bool
+) -> None:
     """Stored statistics for the entity raise one non-fixable warning issue."""
     lookups, created, deleted = _install_legacy_statistics_stubs(
-        monkeypatch, {_LEGACY_ENTITY_ID: (7, {"source": "recorder"})}
+        monkeypatch,
+        {_LEGACY_ENTITY_ID: (7, {"source": "recorder"})},
+        supports_entry=supports_entry,
     )
     entity = _legacy_check_entity()
 
@@ -875,7 +898,7 @@ def test_legacy_statistics_raise_repairs_issue(monkeypatch: Any) -> None:
     assert created == [
         {
             "domain": sensor.DOMAIN,
-            "issue_id": "legacy_gas_statistics_svc_123",
+            "issue_id": "legacy_gas_statistics_entry_1_svc_123",
             "is_fixable": False,
             "is_persistent": False,
             "learn_more_url": sensor.LEGACY_GAS_STATISTICS_URL,
@@ -886,6 +909,7 @@ def test_legacy_statistics_raise_repairs_issue(monkeypatch: Any) -> None:
                 "statistic_id": f"{sensor.DOMAIN}:entry_1_service_123_latest_gas_reading",
                 "name": entity._attr_name,
             },
+            **({"config_entry_id": "entry-1"} if supports_entry else {}),
         }
     ]
 
@@ -897,7 +921,70 @@ def test_legacy_statistics_absent_clears_repairs_issue(monkeypatch: Any) -> None
     asyncio.run(_legacy_check_entity()._async_check_legacy_statistics())
 
     assert created == []
-    assert deleted == ["legacy_gas_statistics_svc_123"]
+    assert deleted == ["legacy_gas_statistics_entry_1_svc_123"]
+
+
+@pytest.mark.parametrize("has_parent_hook", [False, True])
+def test_legacy_statistics_check_on_rename(
+    monkeypatch: Any, has_parent_hook: bool
+) -> None:
+    """A rename rechecks the new ID while keeping the same Repairs issue ID."""
+    renamed_id = "sensor.renamed_gas_reading"
+    lookups, created, deleted = _install_legacy_statistics_stubs(
+        monkeypatch, {renamed_id: (7, {})}, supports_entry=True
+    )
+    entity = _legacy_check_entity()
+    issue_id = entity._legacy_statistics_issue_id()
+    entity.entity_id = renamed_id
+    events: list[str] = []
+    tasks: list[Any] = []
+
+    def parent_hook(_entity: Any, old_entity_id: str) -> None:
+        assert old_entity_id == _LEGACY_ENTITY_ID
+        events.append("parent")
+
+    def create_background_task(_hass: Any, coro: Any, _name: str) -> None:
+        events.append("scheduled")
+        tasks.append(coro)
+
+    if has_parent_hook:
+        monkeypatch.setattr(
+            CoordinatorEntity, "async_entity_id_changed", parent_hook, raising=False
+        )
+    entity._config_entry.async_create_background_task = create_background_task
+    entity.async_entity_id_changed(_LEGACY_ENTITY_ID)
+
+    assert events == (["parent", "scheduled"] if has_parent_hook else ["scheduled"])
+    assert len(tasks) == 1
+    asyncio.run(tasks[0])
+    assert lookups == [(entity.hass, {renamed_id})]
+    assert deleted == []
+    assert created[0]["issue_id"] == issue_id
+    assert created[0]["translation_placeholders"]["entity_id"] == renamed_id
+
+
+def test_legacy_statistics_ignores_lookup_after_a_rename(monkeypatch: Any) -> None:
+    """An older lookup cannot clear the warning for a newer entity ID."""
+    _lookups, created, deleted = _install_legacy_statistics_stubs(monkeypatch, {})
+    entity = _legacy_check_entity()
+    recorder_helpers = sys.modules["homeassistant.helpers.recorder"]
+    recorder = recorder_helpers.get_instance(entity.hass)
+
+    async def rename_during_lookup(_func: Any) -> dict[str, Any]:
+        entity.entity_id = "sensor.renamed_during_lookup"
+        return {}
+
+    monkeypatch.setattr(recorder, "async_add_executor_job", rename_during_lookup)
+    monkeypatch.setattr(recorder_helpers, "get_instance", lambda _hass: recorder)
+
+    asyncio.run(entity._async_check_legacy_statistics())
+
+    assert created == deleted == []
+
+
+def test_issue_config_entry_support_when_signature_is_unavailable() -> None:
+    """Registry signature detection falls back to the older API shape."""
+    assert not sensor._supports_issue_config_entry(object())
 
 
 def test_legacy_statistics_lookup_failure_is_ignored(monkeypatch: Any) -> None:

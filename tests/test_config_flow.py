@@ -69,13 +69,13 @@ class ConfigFlow:
         return ConfigEntry(data={"email": "user@example.test"})
 
     def async_update_reload_and_abort(
-        self, entry: Any, *, data_updates: dict[str, Any]
+        self, entry: Any, **kwargs: Any
     ) -> dict[str, Any]:
         return {
             "type": "abort",
             "reason": "reconfigure_successful",
             "entry": entry,
-            "data_updates": data_updates,
+            "update_kwargs": kwargs,
         }
 
     def async_create_entry(self, **kwargs: Any) -> dict[str, Any]:
@@ -93,6 +93,12 @@ class OptionsFlow:
 
     def async_show_form(self, **kwargs: Any) -> dict[str, Any]:
         return {"type": "form", **kwargs}
+
+
+class OptionsFlowWithReload(OptionsFlow):
+    """Stand-in for Home Assistant's automatic options reload flow."""
+
+    automatic_reload = True
 
 
 class ConfigEntry:
@@ -122,6 +128,7 @@ config_entries.ConfigEntry = ConfigEntry
 config_entries.ConfigFlow = ConfigFlow
 config_entries.ConfigFlowResult = dict[str, Any]
 config_entries.OptionsFlow = OptionsFlow
+config_entries.OptionsFlowWithReload = OptionsFlowWithReload
 data_entry_flow.FlowResult = dict[str, Any]
 voluptuous.Required = Required
 voluptuous.Schema = Schema
@@ -154,6 +161,7 @@ def test_options_flow_is_created_without_manual_config_entry_assignment() -> Non
     flow = config_flow.GloBirdConfigFlow.async_get_options_flow(ConfigEntry())
 
     assert isinstance(flow, config_flow.GloBirdOptionsFlow)
+    assert isinstance(flow, OptionsFlowWithReload)
     assert not hasattr(flow, "config_entry")
 
 
@@ -298,7 +306,9 @@ def test_reauth_and_reauth_confirm_flow(monkeypatch: Any) -> None:
         )
     )
     assert submit_result["type"] == "abort"
-    assert submit_result["data_updates"]["password"] == "new-password"
+    assert submit_result["update_kwargs"] == {
+        "data_updates": {"email": "user@example.test", "password": "new-password"}
+    }
 
 
 def test_reauth_confirm_without_helper_creates_entry(monkeypatch: Any) -> None:
@@ -354,7 +364,9 @@ def test_reconfigure_flow(monkeypatch: Any) -> None:
         )
     )
     assert submit_result["type"] == "abort"
-    assert submit_result["data_updates"]["password"] == "updated"
+    assert submit_result["update_kwargs"] == {
+        "data_updates": {"email": "user@example.test", "password": "updated"}
+    }
 
 
 def test_reconfigure_without_helper_creates_entry(monkeypatch: Any) -> None:

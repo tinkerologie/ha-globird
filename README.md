@@ -173,7 +173,7 @@ automation:
 - **Accounts in Setup / Transfer (`Switched` / `PendingSwitchResults`)**: When a new GloBird account is still transferring and no meter has been assigned by the distributor yet, `readmeters` and `CostDetail` return empty lists (`[]`). Usage and cost sensors will display `Unknown` (`None`) and `Latest Data Status` will report `no_data` until the first meter read is published.
 - **Captcha Enforcement**: If the GloBird portal triggers hCaptcha/reCaptcha due to repeated failed logins, wait a few minutes and sign in once via a web browser before retrying **Reconfigure**.
 - **Legacy gas statistics warning**: see the section below.
-- **Diagnostics**: You can download a redacted diagnostics JSON bundle from **Settings > Devices & Services > GloBird > Download Diagnostics** when reporting an issue.
+- **Diagnostics**: Download a JSON bundle from **Settings > Devices & Services > GloBird > Download Diagnostics** when reporting an issue. The export replaces service IDs with placeholders, omits raw portal responses and redacts error text. For controlled-load reports, look under `data.service_data` for the usage register and cost category inventories.
 
 ### Legacy gas statistics warning
 

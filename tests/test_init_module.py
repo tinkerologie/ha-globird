@@ -55,7 +55,6 @@ class FakeConfigEntries:
     def __init__(self, *, unload_ok: bool = True) -> None:
         self.forwarded: tuple[Any, Any] | None = None
         self.unloaded: tuple[Any, Any] | None = None
-        self.reloaded: str | None = None
         self._unload_ok = unload_ok
 
     async def async_forward_entry_setups(
@@ -66,9 +65,6 @@ class FakeConfigEntries:
     async def async_unload_platforms(self, entry: Any, platforms: list[str]) -> bool:
         self.unloaded = (entry, platforms)
         return self._unload_ok
-
-    async def async_reload(self, entry_id: str) -> None:
-        self.reloaded = entry_id
 
 
 class FakeHass:
@@ -118,6 +114,7 @@ def test_async_setup_and_unload_entry(monkeypatch: Any) -> None:
     assert isinstance(coordinator, FakeCoordinator)
     assert coordinator.refreshed is True
     assert hass.config_entries.forwarded is not None
+    assert entry.listener is None
 
     unload_result = asyncio.run(integration_init.async_unload_entry(hass, entry))
     assert unload_result is True
@@ -134,13 +131,3 @@ def test_async_unload_entry_handles_failed_platform_unload_and_missing_coordinat
 
     hass_empty = FakeHass(unload_ok=True)
     assert asyncio.run(integration_init.async_unload_entry(hass_empty, entry)) is True
-
-
-def test_async_update_options_triggers_reload() -> None:
-    """Options changes should trigger entry reload."""
-    hass = FakeHass()
-    entry = FakeEntry()
-
-    asyncio.run(integration_init.async_update_options(hass, entry))
-
-    assert hass.config_entries.reloaded == "entry-1"

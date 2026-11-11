@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.config_entries import ConfigFlowResult
 from homeassistant.helpers import selector
@@ -19,6 +18,12 @@ from .const import (
     DEFAULT_DAILY_POLL_START_TIME,
     DOMAIN,
 )
+
+if TYPE_CHECKING:
+    import probatio as vol
+else:
+    # Core aliases this import to Probatio from 2026.9 onward.
+    import voluptuous as vol
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -211,7 +216,7 @@ class GloBirdConfigFlow(  # pyright: ignore[reportGeneralTypeIssues, reportCallI
         )
 
 
-class GloBirdOptionsFlow(config_entries.OptionsFlow):
+class GloBirdOptionsFlow(config_entries.OptionsFlowWithReload):
     """Handle GloBird options."""
 
     async def async_step_init(
