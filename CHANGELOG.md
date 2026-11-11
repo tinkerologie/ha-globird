@@ -6,6 +6,8 @@ This project uses Home Assistant's calendar versioning scheme (`YYYY.M.P`, for e
 
 ## [Unreleased]
 
+## [2026.11.0] - 2026-11-11
+
 ### Changed
 
 - Local and CI tests now use Home Assistant's official `pytest-homeassistant` plugin with Core 2026.11.1 ([#41](https://github.com/tinkerologie/ha-globird/issues/41)).
