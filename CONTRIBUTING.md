@@ -108,8 +108,9 @@ pre-commit run --all-files
   - Most tests stub `homeassistant` in `sys.modules`, so `tests/test_import_smoke.py` also runs `script/import_smoke.py` in a clean interpreter, which imports every module against the real Home Assistant that `script/test` pins.
   - Run `bash script/test tests_real_ha -q --no-cov` separately to exercise config entry reloads with the real Home Assistant flow managers.
 - **Next release (early warning, non-blocking):** `.github/workflows/ha-next.yml` runs weekly, on demand, and on PRs that touch `pyproject.toml`, `manifest.json`, `script/import_smoke.py` or `script/hassfest`, on two channels:
-  - `release`: the newest Home Assistant on PyPI, beta included. It runs `python script/import_smoke.py`, the tests (only when a matching `pytest-homeassistant-custom-component` release installs) and `HA_VERSION=<version> ./script/hassfest --skip-plugins ""`.
-  - `dev`: the head of Core's `dev` branch, pinned to one commit. It runs the import smoke test and Hassfest at that commit.
+  - `release`: the newest Home Assistant on PyPI, beta included. It runs `python script/import_smoke.py`, pytest with the matching official plugin from PyPI, and `HA_VERSION=<version> ./script/hassfest --skip-plugins ""`.
+  - `dev`: the head of Core's `dev` branch, pinned to one commit. It runs the same checks and builds the official pytest plugin from that commit.
+  - Both channels report any unavailable or unsupported pytest harness in the run summary while still running the import smoke check and Hassfest.
   - Scheduled and manual runs on `main` keep one issue per channel, labelled `ha-next` and `bug`, and close it when the channel passes again.
 - **Developer blog (early warning, non-blocking):** `.github/workflows/ha-dev-blog.yml` runs weekly and on demand (input `days`, default 22). `script/ha_dev_blog.py` reads the developer blog feed and searches `custom_components/globird/` for the code identifiers named next to an announced deprecation, removal or breaking change. It opens one `ha-dev-blog` and `enhancement` issue per post that names something the integration uses. Run it locally with `python3 script/ha_dev_blog.py --days 30`.
 - **When ha-next fails:** open the run linked from the `ha-next` issue and read the job summary.

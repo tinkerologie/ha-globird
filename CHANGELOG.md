@@ -6,6 +6,10 @@ This project uses Home Assistant's calendar versioning scheme (`YYYY.M.P`, for e
 
 ## [Unreleased]
 
+### Changed
+
+- The HA Next release and development checks use the official pytest plugin matching the Core version under test ([#41](https://github.com/tinkerologie/ha-globird/issues/41)).
+
 ### Fixed
 
 - Codecov uploads on same-repository Dependabot pull requests now authenticate with OIDC ([#47](https://github.com/tinkerologie/ha-globird/issues/47)).

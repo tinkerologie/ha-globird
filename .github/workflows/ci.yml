@@ -51,6 +51,9 @@ jobs:
       - name: Run tests and generate coverage
         run: bash script/test --cov-report=xml
 
+      - name: Verify config flows against Home Assistant
+        run: bash script/test tests_real_ha -q --no-cov
+
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
