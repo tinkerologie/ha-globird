@@ -56,7 +56,8 @@ jobs:
         with:
           files: ./coverage.xml
           disable_search: true
-          use_oidc: ${{ github.event_name != 'pull_request' || (!github.event.pull_request.head.repo.fork && github.event.pull_request.user.login != 'dependabot[bot]') }}
+          # OIDC covers same-repository runs including Dependabot. Fork uploads are tokenless.
+          use_oidc: ${{ github.event_name != 'pull_request' || !github.event.pull_request.head.repo.fork }}
           fail_ci_if_error: true
 
   coverage-baseline:
@@ -84,7 +85,8 @@ jobs:
           override_commit: ${{ github.event.pull_request.base.sha }}
           override_branch: ${{ github.event.pull_request.base.ref }}
           override_pr: '0'
-          use_oidc: ${{ !github.event.pull_request.head.repo.fork && github.event.pull_request.user.login != 'dependabot[bot]' }}
+          # OIDC covers same-repository runs including Dependabot. Fork uploads are tokenless.
+          use_oidc: ${{ !github.event.pull_request.head.repo.fork }}
           fail_ci_if_error: true
 
   frontend:
