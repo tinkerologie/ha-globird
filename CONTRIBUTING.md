@@ -102,10 +102,11 @@ pre-commit run --all-files
 
 ### Deprecations and Upcoming Home Assistant Releases
 
-- **Current release (blocking):** `bash script/test` fails on deprecated use by the integration.
+- **Current release (blocking):** `bash script/test` installs Home Assistant and the matching official `pytest-homeassistant` release in an isolated environment. It fails on deprecated use by the integration.
   - `pyproject.toml` `filterwarnings` turns `DeprecationWarning` and `PendingDeprecationWarning` raised from `custom_components.globird` modules into errors. Third-party deprecations keep the default action.
   - Home Assistant logs, rather than warns, when an integration uses a deprecated API (`report_usage`, deprecated constants, classes and functions) or when an entity class still defines a deprecated attribute (`custom_components.globird.<module>::<Class> provides the deprecated <name>`). `tests/fixtures/deprecations.py` collects those log lines when they name `globird`, and the autouse `fail_on_ha_deprecation_reports` fixture in `tests/conftest.py` fails the test that logged one. Fix the call in the integration; do not silence the check.
   - Most tests stub `homeassistant` in `sys.modules`, so `tests/test_import_smoke.py` also runs `script/import_smoke.py` in a clean interpreter, which imports every module against the real Home Assistant that `script/test` pins.
+  - Run `bash script/test tests_real_ha -q --no-cov` separately to exercise config entry reloads with the real Home Assistant flow managers.
 - **Next release (early warning, non-blocking):** `.github/workflows/ha-next.yml` runs weekly, on demand, and on PRs that touch `pyproject.toml`, `manifest.json`, `script/import_smoke.py` or `script/hassfest`, on two channels:
   - `release`: the newest Home Assistant on PyPI, beta included. It runs `python script/import_smoke.py`, the tests (only when a matching `pytest-homeassistant-custom-component` release installs) and `HA_VERSION=<version> ./script/hassfest --skip-plugins ""`.
   - `dev`: the head of Core's `dev` branch, pinned to one commit. It runs the import smoke test and Hassfest at that commit.

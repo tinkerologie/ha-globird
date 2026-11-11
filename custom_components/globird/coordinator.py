@@ -60,7 +60,7 @@ def _parse_daily_poll_start_time(value: Any) -> dt_time:
         minute = int(minute_raw)
         if 0 <= hour <= 23 and 0 <= minute <= 59:
             return dt_time(hour=hour, minute=minute)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         pass
     return dt_time(hour=0, minute=5)
 

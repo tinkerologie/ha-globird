@@ -27,8 +27,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR/.."
 
 TEST_PYTHON_VERSION="3.14.2"
-TEST_HOME_ASSISTANT_VERSION="2026.6.2"
-TEST_PLUGIN_VERSION="0.13.338"
+TEST_HOME_ASSISTANT_VERSION="2026.11.1"
 
 # shellcheck source=script/.lib/output.sh
 source "$SCRIPT_DIR/.lib/output.sh"
@@ -68,17 +67,17 @@ fi
 # shellcheck source=/dev/null
 source "$TEST_VENV_PATH/bin/activate"
 
+# A reused environment must not load the retired plugin alongside the official one.
+if uv pip show pytest-homeassistant-custom-component >/dev/null 2>&1; then
+    uv pip uninstall pytest-homeassistant-custom-component
+fi
+
 log_info "Installing Home Assistant test dependencies"
 uv pip install \
     . \
     "homeassistant==${TEST_HOME_ASSISTANT_VERSION}" \
-    "pytest-homeassistant-custom-component==${TEST_PLUGIN_VERSION}" \
-    "PyTurboJPEG>=2.2.0" \
-    "av>=16.1.0" \
-    "ha-ffmpeg>=3.2.2" \
-    "segno==1.6.6" \
-    "pytest>=8.0.0" \
-    "pytest-asyncio>=0.23.0" \
+    "pytest-homeassistant==${TEST_HOME_ASSISTANT_VERSION}" \
+    "pydantic>=2.0.0" \
     "pytest-cov>=4.0.0" \
     "pytest-timeout>=2.0.0"
 

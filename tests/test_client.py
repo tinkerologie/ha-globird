@@ -1213,6 +1213,7 @@ def test_redact_sensitive_diagnostics() -> None:
             "accountNumber": "GB0001",
             "safe": "kept",
         },
+        "items": [{"serialNumber": "meter-123"}, "ok"],
     }
 
     redacted = redact_sensitive(payload)
@@ -1221,6 +1222,7 @@ def test_redact_sensitive_diagnostics() -> None:
     assert redacted["password"] == "**REDACTED**"
     assert redacted["nested"]["accountNumber"] == "**REDACTED**"
     assert redacted["nested"]["safe"] == "kept"
+    assert redacted["items"] == [{"serialNumber": "**REDACTED**"}, "ok"]
 
 
 def test_restore_session_success_and_failure() -> None:

@@ -10,8 +10,8 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from datetime import time as dt_time
 from functools import partial
-from inspect import isawaitable
-from typing import Any
+from inspect import isawaitable, signature
+from typing import Any, TypedDict
 
 from homeassistant.components.recorder.models import (
     StatisticData,
@@ -31,6 +31,7 @@ from homeassistant.const import (
     UnitOfVolume,
 )
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_point_in_time
 from homeassistant.helpers.start import async_at_started
@@ -74,6 +75,20 @@ LEGACY_GAS_STATISTICS_ISSUE_PREFIX = f"{LEGACY_GAS_STATISTICS_TRANSLATION_KEY}_"
 LEGACY_GAS_STATISTICS_URL = (
     "https://github.com/tinkerologie/ha-globird#legacy-gas-statistics-warning"
 )
+
+
+class _IssueEntryLink(TypedDict, total=False):
+    """Optional issue registry link supported by Core 2026.11 and later."""
+
+    config_entry_id: str
+
+
+def _supports_issue_config_entry(create_issue: Callable[..., None]) -> bool:
+    """Return whether the issue registry can link issues to config entries."""
+    try:
+        return "config_entry_id" in signature(create_issue).parameters
+    except (TypeError, ValueError):
+        return False
 
 
 def _latest_data_status(detail: dict[str, Any]) -> dict[str, Any]:
@@ -192,7 +207,7 @@ def _timestamp_value(value: Any) -> datetime | None:
         return None
     try:
         return datetime.fromtimestamp(float(value), UTC)
-    except TypeError, ValueError, OSError:
+    except (TypeError, ValueError, OSError):
         return None
 
 
@@ -829,12 +844,12 @@ class GloBirdGlobalSensor(GloBirdBaseSensor):
         self._attr_state_class = description.state_class
         self._attr_entity_category = description.entity_category
         self._attr_icon = description.icon
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, config_entry.entry_id)},
-            "name": "GloBird Energy",
-            "manufacturer": "GloBird Energy",
-            "model": "Customer Portal",
-        }
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, config_entry.entry_id)},
+            name="GloBird Energy",
+            manufacturer="GloBird Energy",
+            model="Customer Portal",
+        )
 
     @property
     def native_value(self) -> Any:
@@ -868,12 +883,12 @@ class GloBirdAccountSummarySensor(GloBirdBaseSensor):
         self._attr_unique_id = (
             f"{config_entry.entry_id}_account_{self._account_id}_summary"
         )
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, config_entry.entry_id)},
-            "name": "GloBird Energy",
-            "manufacturer": "GloBird Energy",
-            "model": "Customer Portal",
-        }
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, config_entry.entry_id)},
+            name="GloBird Energy",
+            manufacturer="GloBird Energy",
+            model="Customer Portal",
+        )
 
     def _account(self) -> dict[str, Any]:
         """Return the latest account row."""
@@ -927,12 +942,12 @@ class GloBirdServiceBaseSensor(GloBirdBaseSensor):
         self._attr_device_class = self.sensor_device_class
         self._attr_state_class = self.sensor_state_class
         self._attr_entity_category = self.sensor_entity_category
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, config_entry.entry_id)},
-            "name": "GloBird Energy",
-            "manufacturer": "GloBird Energy",
-            "model": "Customer Portal",
-        }
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, config_entry.entry_id)},
+            name="GloBird Energy",
+            manufacturer="GloBird Energy",
+            model="Customer Portal",
+        )
 
     def _service_detail(self) -> dict[str, Any]:
         """Return the latest service detail."""
@@ -1399,8 +1414,18 @@ class GloBirdLatestGasReadingSensor(GloBirdServiceBaseSensor):
 
     def _legacy_statistics_issue_id(self) -> str:
         """Return the Repairs issue ID for this service's legacy statistics."""
-        return LEGACY_GAS_STATISTICS_ISSUE_PREFIX + _safe_statistic_id(
-            self._service_id, "service"
+        entry_id = _safe_statistic_id(self._config_entry.entry_id, "entry")
+        service_id = _safe_statistic_id(self._service_id, "service")
+        return f"{LEGACY_GAS_STATISTICS_ISSUE_PREFIX}{entry_id}_{service_id}"
+
+    @callback
+    def async_entity_id_changed(self, old_entity_id: str) -> None:
+        """Refresh the repair after an in-place rename on Core 2026.11+."""
+        parent_hook = getattr(super(), "async_entity_id_changed", None)
+        if parent_hook is not None:
+            parent_hook(old_entity_id)
+        _create_background_upload(
+            self, self._async_check_legacy_statistics(), "legacy gas statistics check"
         )
 
     async def _async_check_legacy_statistics(self) -> None:
@@ -1412,26 +1437,32 @@ class GloBirdLatestGasReadingSensor(GloBirdServiceBaseSensor):
         intentional and names the replacement ``globird:`` statistic. Deleting
         the old statistics stays a user decision.
         """
+        entity_id = self.entity_id
         try:
             from homeassistant.components.recorder.statistics import get_metadata
             from homeassistant.helpers import issue_registry as ir
             from homeassistant.helpers.recorder import get_instance
 
             metadata = await get_instance(self.hass).async_add_executor_job(
-                partial(get_metadata, self.hass, statistic_ids={self.entity_id})
+                partial(get_metadata, self.hass, statistic_ids={entity_id})
             )
         except Exception as err:
             _LOGGER.debug(
                 "GloBird legacy gas statistics check skipped for %s: %s",
-                self.entity_id,
+                entity_id,
                 err,
             )
             return
 
+        if self.entity_id != entity_id:
+            return
         issue_id = self._legacy_statistics_issue_id()
-        if not _has_legacy_statistics(metadata, self.entity_id):
+        if not _has_legacy_statistics(metadata, entity_id):
             ir.async_delete_issue(self.hass, DOMAIN, issue_id)
             return
+        entry_link: _IssueEntryLink = {}
+        if _supports_issue_config_entry(ir.async_create_issue):
+            entry_link["config_entry_id"] = self._config_entry.entry_id
         ir.async_create_issue(
             self.hass,
             DOMAIN,
@@ -1442,10 +1473,11 @@ class GloBirdLatestGasReadingSensor(GloBirdServiceBaseSensor):
             severity=ir.IssueSeverity.WARNING,
             translation_key=LEGACY_GAS_STATISTICS_TRANSLATION_KEY,
             translation_placeholders={
-                "entity_id": self.entity_id,
+                "entity_id": entity_id,
                 "statistic_id": self._external_statistic_id(),
                 "name": str(self._attr_name),
             },
+            **entry_link,
         )
 
     def _handle_coordinator_update(self) -> None:

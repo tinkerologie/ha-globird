@@ -6,8 +6,16 @@ This project uses Home Assistant's calendar versioning scheme (`YYYY.M.P`, for e
 
 ## [Unreleased]
 
+### Changed
+
+- Local and CI tests now use Home Assistant's official `pytest-homeassistant` plugin with Core 2026.11.1 ([#41](https://github.com/tinkerologie/ha-globird/issues/41)).
+
 ### Fixed
 
+- Options, reauthentication and reconfiguration use one reload path each. Reauthentication with unchanged credentials can still recover a failed entry ([#45](https://github.com/tinkerologie/ha-globird/issues/45)).
+- Diagnostics use service placeholders, omit raw portal responses and redact error text while retaining usage register and cost category information ([#44](https://github.com/tinkerologie/ha-globird/issues/44)).
+- Restore imports on Home Assistant 2025.9 installations that run Python 3.13.
+- Home Assistant 2026.11 and later clears the legacy gas statistics repair when its GloBird entry is removed. Renaming the gas reading entity also refreshes the repair against the new entity ID ([#37](https://github.com/tinkerologie/ha-globird/issues/37), [#40](https://github.com/tinkerologie/ha-globird/issues/40)).
 - The release workflow no longer fails when it verifies the release before GitHub has created the release attestation. It retries for about a minute, and still fails when release immutability is off ([#35](https://github.com/tinkerologie/ha-globird/issues/35)).
 
 ## [2026.10.6] - 2026-10-29
